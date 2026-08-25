@@ -1,0 +1,115 @@
+# qsl-send configuration
+# Copy to qsl-send.yaml (which is git-ignored) and edit.
+# Paths are relative to this file. ${VAR} is read from the environment
+# or from a .env file sitting next to this config.
+
+template: template.jpg
+adif: mylog.adi
+output_dir: output
+
+# Optional hand-curated address book for operators the log and QRZ don't cover.
+# Overrides both. Keep it git-ignored — it holds other people's addresses.
+# contacts_file: contacts.yaml
+
+# Printed as {my_callsign}; falls back to the ADIF <station_callsign>.
+my_callsign: MY1CLL/A
+
+# How the log's raw values are formatted before they go on the card.
+date_format: "%d/%m/%Y"   # 20260823 -> 23/08/2026
+time_format: "%H:%M"      # 1415     -> 14:15
+qrg_decimals: 3           # 7.142
+
+# One card per QSO, or one per callsign (first contact wins).
+group_by: qso             # qso | callsign
+
+# Set true to skip rendering a card when no address could be resolved.
+skip_without_email: false
+
+render:
+  # Any .ttf/.otf. Omitted -> first available system font (Arial on macOS).
+  font: /System/Library/Fonts/Supplemental/Arial Bold.ttf
+  color: "#0b2d5c"
+  format: jpeg            # jpeg | png
+  quality: 92
+  # max_width: 1600       # downscale finished cards, handy for e-mail size
+  filename: "{callsign}_{date_iso}_{utc_raw}"
+
+  # Pixel size of the template the boxes below were measured on. If your
+  # template has a different size, the boxes are scaled proportionally.
+  template_size: [1583, 1061]
+
+  # The seven blank boxes along the bottom of template.jpg.
+  # box: [x, y, width, height] in template pixels.
+  # Text is auto-shrunk to fit its box.
+  fields:
+    - name: date
+      box: [101, 950, 166, 42]
+      value: "{date}"
+    - name: qso_with
+      box: [284, 952, 168, 41]
+      value: "{callsign}"
+    - name: name
+      box: [463, 951, 291, 42]
+      value: "{name_title}"
+      max_chars: 28
+    - name: qrg
+      box: [767, 952, 150, 40]
+      value: "{qrg}"
+    - name: utc
+      box: [926, 954, 150, 38]
+      value: "{utc}"
+    - name: mode
+      box: [1088, 950, 64, 42]
+      value: "{mode}"
+    - name: rst
+      box: [1170, 958, 71, 34]
+      value: "{rst}"
+
+  # Available placeholders:
+  #   {date} {date_iso} {callsign} {base_callsign} {name} {name_title}
+  #   {name_first} {qrg} {freq} {band} {utc} {utc_raw} {time_off} {mode}
+  #   {rst} {rst_rcvd} {qth} {gridsquare} {country} {email} {my_callsign}
+  #   {my_name} {my_gridsquare} {my_qth} {tx_pwr} {index}
+  # Per-field options: align (left|center|right), valign (top|center|bottom),
+  #   font, color, max_font_size, min_font_size, padding, uppercase,
+  #   fit (shrink|clip), max_chars.
+
+qrz:
+  # QRZ XML lookups need an XML subscription; without one, e-mail addresses
+  # come back empty. The log's own <email> field is used either way.
+  enabled: false
+  username: ${QRZ_USERNAME}
+  password: ${QRZ_PASSWORD}
+  prefer: adif            # adif | qrz — which source wins for name/e-mail
+  cache_file: .qrz-cache.json
+  timeout: 15
+
+# Delivery. `qsl-send send` previews by default; --confirm actually sends.
+#
+# Gmail: needs 2-Step Verification, then a 16-character App Password from
+# https://myaccount.google.com/apppasswords — your Google password will not
+# work. Gmail rewrites the From header to the authenticated account, so
+# from_address must be that address or a verified "Send mail as" alias.
+smtp:
+  host: smtp.gmail.com
+  port: 587               # 587 = STARTTLS. Port 465 uses implicit SSL.
+  username: ${SMTP_USERNAME}
+  password: ${SMTP_PASSWORD}
+  use_tls: true
+  from_address: ""
+  from_name: "MY1CLL"
+  # reply_to: ""
+  delay: 2.0              # seconds between messages, to stay under rate limits
+  timeout: 30
+  attachment_name: "QSL_{my_callsign}_{callsign}"
+  subject: "QSL {my_callsign} <-> {callsign}"
+  body: |
+    Estimado/a {name_first}, {callsign}:
+
+    Muchas gracias por el contacto del {date} a las {utc} UTC
+    en {qrg} MHz ({mode}), RST {rst}.
+
+    Adjunto la QSL correspondiente.
+
+    73!
+    {my_callsign}

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qsl-send"
+version = "0.1.0"
+description = "Generate and send QSL cards from an ADIF log"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=10.0",
+    "PyYAML>=6.0",
+    "requests>=2.31",
+]
+
+[project.scripts]
+qsl-send = "qsl_send.cli:main"
+
+[tool.setuptools]
+packages = ["qsl_send"]

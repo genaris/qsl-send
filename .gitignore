@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Local configuration and secrets
+qsl-send.yaml
+qsl-send.yml
+config.yaml
+config.yml
+.env
+.qrz-cache.json
+
+# Local address book — holds other operators' e-mail addresses
+contacts.yaml
+contacts.yml
+
+# Generated cards and reports
+output/
+.claude/settings.json
+*.adi
