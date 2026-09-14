@@ -17,5 +17,10 @@ dependencies = [
 [project.scripts]
 qsl-send = "qsl_send.cli:main"
 
+# Opens the desktop window. Needs a Python built with tkinter — the python.org
+# and Homebrew (plus python-tk) builds have it; a pyenv build usually does not.
+[project.gui-scripts]
+qsl-send-gui = "qsl_send.gui:main"
+
 [tool.setuptools]
 packages = ["qsl_send"]

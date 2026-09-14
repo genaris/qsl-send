@@ -349,6 +349,126 @@ Proton Mail needs a paid plan either way: direct SMTP submission
 Proton Mail Bridge (`127.0.0.1:1025`) requires the Bridge app to be running
 while you send.
 
+## Running the window on macOS or Linux
+
+The window is plain tkinter and works on every desktop platform — it is not
+Windows-only. The one requirement is a Python **built with tkinter**, which is
+where it usually goes wrong:
+
+| Python | tkinter? |
+| --- | --- |
+| python.org installer (macOS/Windows) | yes |
+| Homebrew `python@3.x` + `brew install python-tk@3.x` | yes |
+| macOS system `/usr/bin/python3` | yes, but only 3.9 — too old for this project |
+| **pyenv** builds | **usually not**, unless Tk was present when it was built |
+
+Check whichever interpreter you plan to use:
+
+```bash
+python3 -c "import tkinter; print(tkinter.TkVersion)"
+```
+
+If that fails, the venv you built the project in cannot open the window. Make
+one from a Python that has tkinter:
+
+```bash
+brew install python-tk@3.13                 # once, if using Homebrew Python
+/opt/homebrew/bin/python3.13 -m venv .venv-gui
+.venv-gui/bin/pip install -e .
+.venv-gui/bin/qsl-send-gui                  # opens the window
+```
+
+Or without installing anything:
+
+```bash
+.venv-gui/bin/python -m qsl_send.gui
+```
+
+Either form accepts a config path — `qsl-send-gui path/to/qsl-send.yaml` —
+otherwise it looks for `qsl-send.yaml` in the current folder and pre-fills the
+boxes from it.
+
+The command line is unaffected and keeps working in your normal venv; only the
+window needs tkinter.
+
+## For Windows users (no Python needed)
+
+Colleagues who are not developers should not have to install Python, use a
+terminal, or edit YAML. For them, the app is packaged as a Windows installer
+with a small window.
+
+### The window
+
+Double-clicking **QSL Sender** opens a window that walks through the job in the
+order it is actually done:
+
+```
+1. Files        card design · log file · where to save
+2. Card layout  [Find fields automatically]  [Show me…]
+3. Make/send    [Make the cards] [Review who gets one…]
+                [Send a test to myself]      [Send the e-mails]
+```
+
+The same safety rules as the command line apply, and they are enforced by the
+interface rather than by remembering a flag:
+
+- **Sending is never one click from opening the app.** You must make the cards,
+  and the Send button stays disabled until you have.
+- **Confirmation names the number.** "This will e-mail 23 operator(s) — for
+  real", defaulting to No.
+- **"Send a test to myself"** delivers one card to an address you type, and
+  never marks anyone as having received theirs.
+- **"Review who gets one…"** opens `manifest.csv` in Excel before anything is
+  sent.
+- Long jobs run on a background thread, so the window never freezes.
+
+Running the packaged app with arguments still gives the full command line, so
+nothing is lost for people who prefer it.
+
+### Building it
+
+Two supported routes; both produce the same thing.
+
+**On a Windows PC**, from the project root:
+
+```bat
+packaging\build-windows.bat
+```
+
+That creates `dist\QSL Sender\`. To produce the installer as well, install
+[Inno Setup](https://jrsoftware.org/isdl.php) and run `iscc packaging\installer.iss`.
+
+**Or let GitHub build it.** `.github/workflows/build-windows.yml` runs the tests,
+builds the app and compiles the installer on a Windows runner. Trigger it by
+hand from the Actions tab, or push a version tag:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+Tagged builds attach `QSL-Sender-Setup-0.1.0.exe` to a GitHub Release, so
+colleagues get a download link rather than a zip by e-mail.
+
+### Notes on the packaging choices
+
+- **One-folder, not one-file.** A single .exe unpacks itself to a temp folder
+  on every launch, which is slow and is flagged by SmartScreen and antivirus far
+  more often. The installer hides the folder from users anyway.
+- **Per-user install** (`PrivilegesRequired=lowest`), so no administrator rights
+  are needed — which matters on a locked-down work machine.
+- **No console window** (`console=False`), so double-clicking does not show a
+  black terminal.
+- **Unsigned.** Windows will show a SmartScreen warning on first run; the user
+  clicks "More info" then "Run anyway". Removing that warning requires a paid
+  code-signing certificate.
+
+### Settings for colleagues
+
+Each person still needs their own `qsl-send.yaml` beside the app, with their own
+callsign and their own Gmail App Password in `.env`. Never share a password
+between people — send each colleague the example files and let them fill in
+their own.
+
 ## Tests
 
 ```bash

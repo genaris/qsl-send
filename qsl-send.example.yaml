@@ -26,8 +26,11 @@ group_by: qso             # qso | callsign
 skip_without_email: false
 
 render:
-  # Any .ttf/.otf. Omitted -> first available system font (Arial on macOS).
-  font: /System/Library/Fonts/Supplemental/Arial Bold.ttf
+  # Leave unset to use the best system font found automatically
+  # (Arial/Segoe UI on Windows, Arial on macOS, DejaVu on Linux).
+  # Set it only to force a specific face, e.g.
+  #   font: C:/Windows/Fonts/arialbd.ttf
+  # font:
   color: "#0b2d5c"
   format: jpeg            # jpeg | png
   quality: 92

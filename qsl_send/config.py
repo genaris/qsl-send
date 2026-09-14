@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -35,14 +36,60 @@ DEFAULT_FIELDS: list[dict[str, Any]] = [
     {"name": "rst", "box": [1170, 958, 71, 34], "value": "{rst}"},
 ]
 
-_FONT_CANDIDATES = [
+# Tried in order, most likely platform first (see _font_candidates). Several
+# Windows faces are listed because a PC missing Arial would otherwise fail to
+# start at all — a colleague on a fresh machine must not hit a config error.
+_FONT_CANDIDATES_WINDOWS = [
+    "C:/Windows/Fonts/arialbd.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+    "C:/Windows/Fonts/segoeuib.ttf",
+    "C:/Windows/Fonts/segoeui.ttf",
+    "C:/Windows/Fonts/calibrib.ttf",
+    "C:/Windows/Fonts/calibri.ttf",
+    "C:/Windows/Fonts/tahomabd.ttf",
+    "C:/Windows/Fonts/tahoma.ttf",
+    "C:/Windows/Fonts/verdanab.ttf",
+    "C:/Windows/Fonts/verdana.ttf",
+]
+_FONT_CANDIDATES_MACOS = [
     "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
     "/System/Library/Fonts/Supplemental/Arial.ttf",
     "/Library/Fonts/Arial Unicode.ttf",
+    "/System/Library/Fonts/Supplemental/Verdana Bold.ttf",
+]
+_FONT_CANDIDATES_LINUX = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "C:/Windows/Fonts/arialbd.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
 ]
+
+
+def _font_candidates() -> list[str]:
+    """Font paths to try, this platform's own fonts first."""
+    if sys.platform.startswith("win"):
+        first = _FONT_CANDIDATES_WINDOWS
+    elif sys.platform == "darwin":
+        first = _FONT_CANDIDATES_MACOS
+    else:
+        first = _FONT_CANDIDATES_LINUX
+    rest = [
+        c
+        for group in (
+            _FONT_CANDIDATES_WINDOWS,
+            _FONT_CANDIDATES_MACOS,
+            _FONT_CANDIDATES_LINUX,
+        )
+        for c in group
+        if c not in first
+    ]
+    return first + rest
+
+
+# Kept so anything importing the old flat name still works.
+_FONT_CANDIDATES = (
+    _FONT_CANDIDATES_MACOS + _FONT_CANDIDATES_LINUX + _FONT_CANDIDATES_WINDOWS
+)
 
 
 @dataclass
@@ -156,11 +203,21 @@ def _expand(value: Any) -> Any:
 
 
 def default_font() -> str:
-    for candidate in _FONT_CANDIDATES:
+    """First usable system font. Should never raise on a normal desktop."""
+    for candidate in _font_candidates():
         if Path(candidate).is_file():
             return candidate
+    # Fall back to the real Windows font directory, in case Windows is not on C:.
+    win_dir = os.environ.get("WINDIR")
+    if win_dir:
+        fonts = Path(win_dir) / "Fonts"
+        for name in ("arialbd.ttf", "arial.ttf", "segoeui.ttf", "tahoma.ttf"):
+            candidate_path = fonts / name
+            if candidate_path.is_file():
+                return str(candidate_path)
     raise ConfigError(
-        "No default font found. Set render.font in the config to a .ttf/.otf path."
+        "No system font could be found automatically. Set render.font in the "
+        "configuration to the full path of a .ttf or .otf file."
     )
 
 
