@@ -182,6 +182,43 @@ field boxes from the code, so the image and the config cannot drift apart:
 .venv/bin/python tools/make_example_template.py template.jpg
 ```
 
+## One folder per activation
+
+Each activation keeps its own `output_dir`, and the delivery log lives inside
+it:
+
+```
+output-dps-02/   manifest.csv · cards/ · sent.json   ← 30/08 activation
+output-dps-03/   manifest.csv · cards/ · sent.json   ← 13/09 activation
+```
+
+So progress is independent: sending one batch cannot mark another batch's
+recipients as done. The sent-log key also includes the card file name, which
+carries the QSO date, so an operator worked in two activations correctly
+receives a card for each.
+
+Reusing one folder for two activations does not cause duplicate e-mails, but it
+overwrites the previous `manifest.csv` and merges both batches into one
+`sent.json` — losing the record of who received which card. So `generate`
+checks the folder first and asks before overwriting a *different* activation:
+
+```
+! 'output-dps-03' already holds a different activation (24 card(s) from
+  13/09/2026). Generating here overwrites that record. Use a separate folder
+  per activation to keep each one's history.
+
+Continue anyway? [y/N]
+```
+
+Regenerating the *same* activation passes silently — that is routine, and a
+prompt that fires every time is one people learn to click through. If the batch
+was already sent, the message says so and reassures that nobody gets a second
+copy.
+
+Pass `--yes` to skip the prompt in scripts. Without a terminal attached,
+`generate` refuses rather than guessing (exit code 2). The window asks the same
+question in a dialog.
+
 ## Where addresses come from
 
 1. **The contacts file**, if configured — a hand-curated address book that
@@ -424,6 +461,68 @@ interface rather than by remembering a flag:
 
 Running the packaged app with arguments still gives the full command line, so
 nothing is lost for people who prefer it.
+
+### Settings in the window
+
+The main window shows who this copy is configured as — callsign, sending
+address, language and output folder — so a colleague can tell at a glance that
+they are about to send as themselves.
+
+**Settings…** opens an editor with three tabs:
+
+| Tab | Settings |
+| --- | --- |
+| You | Callsign, window language |
+| E-mail | Server, port, your name and address, sign-in name, password |
+| Message | Subject line and the text of the e-mail, with a preview |
+| Address book | The contacts file: addresses and names you looked up yourself |
+| Behaviour | Output folder, address book, pause between e-mails, whether to skip contacts with no address |
+
+The **Message** tab edits what recipients actually read. **Preview…** fills the
+subject and body with the first QSO from the loaded log, so the wording can be
+checked against real data before anything is sent — including that every
+`{placeholder}` resolves. Useful ones:
+
+```
+{name_first} {callsign} {date} {utc} {qrg} {mode} {rst} {my_callsign}
+```
+
+The **Address book** tab edits `contacts.yaml` from the window — add, edit and
+remove entries without touching YAML. Saving keeps the simple `CALL: address`
+form for entries that have only an address, uses the mapping form when a name
+is set, and preserves the header comments that explain the format.
+
+After generating, if any contact is missing a name or an address the window
+shows a warning with the affected callsigns and a **Complete the address
+book…** button. That opens this tab directly and offers to add each missing
+callsign in turn, so the gap found by the analysis can be closed on the spot.
+A contact with an address but no name is flagged too, since the greeting would
+otherwise fall back to the callsign.
+
+The body is stored as a multi-line YAML block, which needs different handling
+from a one-line setting: rewriting its `body: |` marker line would orphan the
+text below it and leave the file unparseable. Saving replaces the indented
+block itself, so the file stays valid and every comment survives.
+
+The password box is **masked by default**, with a **Show** checkbox to reveal
+it when typing a new one.
+
+Card layout — field boxes, fonts, colours — is deliberately *not* editable
+here. `detect-fields` handles layout, and one wrong number silently ruins every
+card in a batch.
+
+**Saving preserves the file.** Only the lines whose values actually changed are
+rewritten; every comment, blank line and trailing `# note` stays byte-identical.
+That matters because this config documents itself — the Gmail setup
+instructions and placeholder reference live in its comments, and a normal YAML
+round-trip would delete all of them.
+
+Note that saving a password from this window writes it into `qsl-send.yaml` in
+plain text, replacing the `${SMTP_PASSWORD}` placeholder. `qsl-send.yaml` is
+git-ignored so it will not be committed, but treat the file as a credential
+afterwards: do not mail it around or copy it over `qsl-send.example.yaml`.
+Settings that still hold a `${VAR}` placeholder are left untouched unless you
+deliberately change them.
 
 ### Language
 

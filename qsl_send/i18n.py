@@ -80,6 +80,83 @@ _ES: dict[str, str] = {
         "Prueba enviada. No se marcó a nadie como que ya recibió su tarjeta.",
     "Cancelled — nothing was sent.": "Cancelado — no se envió nada.",
     "Nobody left to send to.": "No queda nadie a quien enviarle.",
+    # summary bar
+    "Callsign": "Indicativo",
+    "Sends from": "Envía desde",
+    "Language": "Idioma",
+    "Saving to": "Guardando en",
+    "follows the computer": "sigue a la computadora",
+    "Settings…": "Configuración…",
+    # settings dialog
+    "Settings": "Configuración",
+    "You": "Vos",
+    "E-mail": "Correo",
+    "Behaviour": "Comportamiento",
+    "Save": "Guardar",
+    "Cancel": "Cancelar",
+    "Your callsign": "Tu indicativo",
+    "'auto' follows the computer's own language.":
+        "«auto» sigue el idioma de la computadora.",
+    "Server": "Servidor",
+    "Port": "Puerto",
+    "Your name": "Tu nombre",
+    "Your address": "Tu dirección",
+    "Sign in as": "Iniciar sesión como",
+    "Password": "Contraseña",
+    "Show": "Mostrar",
+    "For Gmail this is a 16-character App Password, not your normal password.":
+        "Para Gmail es una contraseña de aplicación de 16 caracteres, "
+        "no tu contraseña habitual.",
+    "by {callsign}": "por {callsign}",
+    # output-folder confirmation
+    "Check the folder": "Revisá la carpeta",
+    "Continue anyway?": "¿Continuar igual?",
+    "Cancelled — nothing was written.": "Cancelado — no se escribió nada.",
+    # address book tab
+    "E-mail": "Correo",
+    "Name": "Nombre",
+    "Contact": "Contacto",
+    "Add…": "Agregar…",
+    "Edit…": "Editar…",
+    "Remove": "Quitar",
+    "OK": "Aceptar",
+    "Addresses and names you looked up yourself. These win over the log and QRZ.":
+        "Direcciones y nombres que buscaste vos. Tienen prioridad sobre el log y QRZ.",
+    "Enter a callsign.": "Ingresá un indicativo.",
+    "That does not look like an e-mail address.":
+        "Eso no parece una dirección de correo.",
+    "Enter an e-mail address, a name, or both.":
+        "Ingresá una dirección de correo, un nombre, o ambos.",
+    "Remove {callsign} from the address book?":
+        "¿Quitar {callsign} de la libreta de direcciones?",
+    "Add the {count} missing contact(s) now?":
+        "¿Agregar ahora {count} contacto(s) que faltan?",
+    # missing-contacts prompt on the main window
+    "Complete the address book…": "Completar la libreta…",
+    "{count} contact(s) are missing a name or an address: {calls}":
+        "A {count} contacto(s) les falta nombre o dirección: {calls}",
+    # message tab
+    "Message": "Mensaje",
+    "Subject": "Asunto",
+    "Message text": "Texto del mensaje",
+    "You can use: {placeholders}": "Podés usar: {placeholders}",
+    "Preview…": "Vista previa…",
+    "Preview": "Vista previa",
+    "Close": "Cerrar",
+    "Save cards to": "Guardar tarjetas en",
+    "Address book": "Libreta de direcciones",
+    "Pause between e-mails": "Pausa entre correos",
+    "Skip contacts with no e-mail address":
+        "Saltear contactos sin dirección de correo",
+    "The port must be a whole number.":
+        "El puerto tiene que ser un número entero.",
+    "The pause must be a number of seconds.":
+        "La pausa tiene que ser un número de segundos.",
+    "The new language will be used next time you open the window.":
+        "El nuevo idioma se va a usar la próxima vez que abras la ventana.",
+    "No settings file was found, so there is nothing to edit.":
+        "No se encontró un archivo de configuración, así que no hay nada para editar.",
+    "Saved {count} setting(s).": "Se guardaron {count} opción(es).",
     # parameterised messages ({} placeholders are preserved)
     "Looking at {name} …": "Mirando {name} …",
     "Found {count} fields in {rows} row(s):":

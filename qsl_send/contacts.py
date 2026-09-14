@@ -31,6 +31,50 @@ class Contact:
     name: str = ""
 
 
+def save_contacts(path: str | Path, contacts: dict[str, Contact]) -> None:
+    """Write the address book back, in the simple form a person can still edit.
+
+    An entry with only an address is written as ``CALL: address``; one that
+    also carries a name uses the mapping form. Any header comments already in
+    the file are preserved, since they explain the format to whoever opens it.
+    """
+    p = Path(path)
+
+    header: list[str] = []
+    if p.is_file():
+        for line in p.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#") or not stripped:
+                header.append(line)
+            else:
+                break
+        while header and not header[-1].strip():
+            header.pop()
+
+    lines = list(header)
+    if lines:
+        lines.append("")
+    for call in sorted(contacts):
+        entry = contacts[call]
+        if not (entry.email or entry.name):
+            continue
+        if entry.name:
+            lines.append(f"{call}:")
+            if entry.email:
+                lines.append(f"  email: {entry.email}")
+            lines.append(f"  name: {entry.name}")
+        else:
+            lines.append(f"{call}: {entry.email}")
+
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    try:
+        tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        tmp.replace(p)
+    except OSError as exc:
+        tmp.unlink(missing_ok=True)
+        raise ContactsError(f"Could not save {p}: {exc}") from exc
+
+
 def load_contacts(path: str | Path | None) -> tuple[dict[str, Contact], list[str]]:
     """Load the override file. Returns (contacts by base callsign, warnings)."""
     if path is None:

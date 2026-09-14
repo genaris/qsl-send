@@ -33,7 +33,7 @@ class CardResult:
     freq: str = ""
     rst_sent: str = ""
     card_file: str = ""
-    status: str = "ok"  # ok | no_email | error
+    status: str = "ok"  # ok | no_email | no_name | error
     notes: str = ""
     qso_count: int = 1
     # Placeholder values for this QSO. Carried in manifest.json (not the CSV) so
@@ -42,7 +42,14 @@ class CardResult:
 
     @property
     def sendable(self) -> bool:
-        return self.status == "ok" and bool(self.email)
+        """Whether this card would actually be e-mailed.
+
+        Must match what build_queue() does: it needs an address and a rendered
+        card, and nothing else. In particular a missing *name* does not block
+        delivery — the greeting just falls back to the callsign — so `no_name`
+        is still sendable. Only a missing address or a render error is not.
+        """
+        return bool(self.email) and self.status != "error"
 
 
 @dataclass
@@ -64,6 +71,16 @@ class RunSummary:
     @property
     def errors(self) -> int:
         return sum(1 for r in self.results if r.status == "error")
+
+    @property
+    def without_name(self) -> int:
+        return sum(1 for r in self.results if r.status == "no_name")
+
+    @property
+    def needing_contacts(self) -> list[str]:
+        """Callsigns whose name or address could be filled in by hand."""
+        return [r.callsign for r in self.results
+                if r.status in ("no_email", "no_name")]
 
 
 def safe_filename(stem: str, fallback: str = "card") -> str:
@@ -227,6 +244,10 @@ def generate_cards(
         )
         if not email:
             result.status = "no_email"
+        elif not name:
+            # Se puede enviar, pero el saludo caería en el indicativo. Vale la
+            # pena avisar para que se pueda completar en la libreta.
+            result.status = "no_name"
 
         if cfg.skip_without_email and not email:
             result.notes = "; ".join(filter(None, [result.notes, "skipped: no e-mail"]))

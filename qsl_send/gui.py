@@ -35,10 +35,18 @@ except ImportError as exc:  # pragma: no cover - depends on the Python build
     ) from exc
 
 from qsl_send.config import ConfigError, load_config
-from qsl_send.i18n import get_language, set_language, t
-from qsl_send.contacts import ContactsError, load_contacts
+from qsl_send.i18n import SUPPORTED, get_language, set_language, t
+from qsl_send.settings_io import (
+    SettingsWriteError,
+    read_block_scalar,
+    update_block_scalar,
+    update_settings,
+)
+from qsl_send.contacts import Contact, ContactsError, load_contacts, save_contacts
 
 APP_TITLE = "QSL Sender"
+
+AUTHOR_CALLSIGN = "LU2AOG"
 
 
 class _Console:
@@ -73,7 +81,7 @@ class App:
         self.worker: threading.Thread | None = None
         self.summary = None  # last generate result
 
-        root.title(t(APP_TITLE))
+        root.title(self._window_title())
         root.geometry("760x620")
         root.minsize(680, 560)
 
@@ -92,6 +100,26 @@ class App:
         pad = {"padx": 10, "pady": 6}
         frm = ttk.Frame(self.root)
         frm.pack(fill="both", expand=True)
+
+        # --- at-a-glance summary of who this copy is configured as ---
+        summary = ttk.Frame(frm)
+        summary.pack(fill="x", padx=10, pady=(8, 0))
+        self.sum_vars: dict[str, tk.StringVar] = {}
+        for i, (key, label) in enumerate([
+            ("my_callsign", t("Callsign")),
+            ("from_address", t("Sends from")),
+            ("language", t("Language")),
+            ("output_dir", t("Saving to")),
+        ]):
+            cell = ttk.Frame(summary)
+            cell.grid(row=i // 2, column=i % 2, sticky="w", padx=(0, 24), pady=1)
+            ttk.Label(cell, text=f"{label}:", width=12).pack(side="left")
+            var = tk.StringVar(value="—")
+            self.sum_vars[key] = var
+            ttk.Label(cell, textvariable=var, font=("", 0, "bold")).pack(side="left")
+        ttk.Button(summary, text=t("Settings…"), command=self.on_settings).grid(
+            row=0, column=2, rowspan=2, sticky="e", padx=4)
+        summary.columnconfigure(2, weight=1)
 
         # --- inputs ---
         box = ttk.LabelFrame(frm, text=t("1. Files"))
@@ -131,6 +159,15 @@ class App:
         self.btn_send = ttk.Button(row2, text=t("Send the e-mails"),
                                    command=self.on_send, state="disabled")
         self.btn_send.pack(side="right")
+
+        # Shown only when an analysis finds contacts that could be completed.
+        self.missing_row = ttk.Frame(box3)
+        self.missing_var = tk.StringVar()
+        ttk.Label(self.missing_row, textvariable=self.missing_var,
+                  foreground="#a05000", wraplength=380,
+                  justify="left").pack(side="left", padx=(0, 8))
+        ttk.Button(self.missing_row, text=t("Complete the address book…"),
+                   command=self.on_fix_contacts).pack(side="right")
 
         # --- log ---
         box4 = ttk.LabelFrame(frm, text=t("What happened"))
@@ -179,6 +216,30 @@ class App:
             self.fields_label.configure(
                 text=t("{count} fields configured.",
                        count=len(cfg.render.fields)))
+        self._refresh_summary(cfg)
+
+    def _window_title(self) -> str:
+        """`QSL Sender - by LU2AOG`, crediting the author of the application."""
+        return f"{t(APP_TITLE)} - {t('by {callsign}', callsign=AUTHOR_CALLSIGN)}"
+
+    def _refresh_summary(self, cfg) -> None:
+        """Mirror the key identity settings into the summary bar."""
+        if not hasattr(self, "sum_vars"):
+            return
+        lang = cfg.language or t("follows the computer")
+        self.sum_vars["my_callsign"].set(cfg.my_callsign or "—")
+        self.sum_vars["from_address"].set(cfg.smtp.from_address or "—")
+        self.sum_vars["language"].set(lang)
+        out = cfg.resolve(cfg.output_dir)
+        self.sum_vars["output_dir"].set(Path(out).name if out else "—")
+
+    def on_settings(self) -> None:
+        if not self.config_path:
+            messagebox.showinfo(
+                t(APP_TITLE),
+                t("No settings file was found, so there is nothing to edit."))
+            return
+        SettingsDialog(self.root, self)
 
     def log(self, line: str) -> None:
         self.console.write(line)
@@ -306,6 +367,18 @@ class App:
                 t(APP_TITLE), t("Choose a card design, a log file and a folder first."))
             return
 
+        # One folder per activation. Ask before overwriting a different batch,
+        # but stay quiet when simply regenerating the same one.
+        from qsl_send.workspace import adif_dates, inspect, warning_for
+
+        warning = warning_for(inspect(Path(outdir)), adif_dates(Path(adif)))
+        if warning and not messagebox.askyesno(
+            t("Check the folder"), warning + "\n\n" + t("Continue anyway?"),
+            default="no", icon="warning",
+        ):
+            self.log(t("Cancelled — nothing was written."))
+            return
+
         def work():
             from qsl_send.pipeline import generate_cards
             from qsl_send.report import format_summary, write_manifest
@@ -340,8 +413,33 @@ class App:
                 cards=summary.cards_written,
                 ready=summary.with_email,
                 missing=summary.without_email))
+            self.root.after(0, lambda: self._show_missing(summary))
 
         self._run(work)
+
+    def _show_missing(self, summary) -> None:
+        """Offer a direct route to the address book when contacts are lacking."""
+        self._missing_calls = list(summary.needing_contacts)
+        if not self._missing_calls:
+            self.missing_row.pack_forget()
+            return
+        shown = ", ".join(self._missing_calls[:6])
+        if len(self._missing_calls) > 6:
+            shown += "…"
+        self.missing_var.set(t(
+            "{count} contact(s) are missing a name or an address: {calls}",
+            count=len(self._missing_calls), calls=shown))
+        self.missing_row.pack(fill="x", padx=8, pady=(0, 6))
+
+    def on_fix_contacts(self) -> None:
+        """Open the address book, ready to add the callsigns that are lacking."""
+        if not self.config_path:
+            messagebox.showinfo(
+                t(APP_TITLE),
+                t("No settings file was found, so there is nothing to edit."))
+            return
+        SettingsDialog(self.root, self, open_tab="contacts",
+                       prefill=list(getattr(self, "_missing_calls", [])))
 
     def on_review(self):
         outdir = Path(self.outdir.get().strip() or ".")
@@ -416,6 +514,449 @@ class App:
         self.status.set(t("Sent {sent} of {total}.",
                           sent=sent, total=len(outcomes)))
         return sent
+
+
+class SettingsDialog(tk.Toplevel):
+    """Edit the settings a non-technical user legitimately needs to change.
+
+    Deliberately excludes field boxes, fonts and colours: `detect-fields`
+    already handles the card layout, and a wrong number there silently ruins
+    every card in a batch.
+    """
+
+    def __init__(self, parent: tk.Misc, app: "App", *,
+                 open_tab: str | None = None,
+                 prefill: list[str] | None = None):
+        super().__init__(parent)
+        self.app = app
+        self._prefill = list(prefill or [])
+        self.title(t("Settings"))
+        self.transient(parent)
+        self.resizable(False, False)
+
+        cfg = load_config(app.config_path)
+        self.cfg = cfg
+        self.vars: dict[str, tk.Variable] = {}
+
+        nb = ttk.Notebook(self)
+        nb.pack(fill="both", expand=True, padx=10, pady=10)
+        nb.add(self._tab_identity(nb), text=t("You"))
+        nb.add(self._tab_email(nb), text=t("E-mail"))
+        nb.add(self._tab_message(nb), text=t("Message"))
+        contacts_tab = self._tab_contacts(nb)
+        nb.add(contacts_tab, text=t("Address book"))
+        if open_tab == "contacts":
+            nb.select(contacts_tab)
+            self.after(120, self._offer_prefill)
+        nb.add(self._tab_behaviour(nb), text=t("Behaviour"))
+
+        buttons = ttk.Frame(self)
+        buttons.pack(fill="x", padx=10, pady=(0, 10))
+        ttk.Button(buttons, text=t("Cancel"), command=self.destroy).pack(side="right")
+        ttk.Button(buttons, text=t("Save"), command=self.on_save).pack(
+            side="right", padx=6)
+
+        # Make the dialog modal only once it is actually on screen.
+        #
+        # wait_visibility() blocks until the window is mapped, and a transient
+        # child of a hidden or minimised parent may never map — which would
+        # hang the app with no error message. grab_set() has the same problem
+        # if called before mapping. Deferring both to <Map> keeps the dialog
+        # usable no matter what state the main window is in.
+        self.bind("<Map>", self._on_mapped)
+        self.focus_set()
+
+    def _on_mapped(self, _event=None) -> None:
+        self.unbind("<Map>")
+        try:
+            self.grab_set()
+        except tk.TclError:
+            pass  # a grab is a nicety, never worth failing over
+        self.focus_set()
+
+    # -- tabs ----------------------------------------------------------
+
+    def _row(self, parent, label, key, value, *, width=34, show=None):
+        row = ttk.Frame(parent)
+        row.pack(fill="x", padx=10, pady=4)
+        ttk.Label(row, text=label, width=18).pack(side="left")
+        var = tk.StringVar(value="" if value is None else str(value))
+        self.vars[key] = var
+        entry = ttk.Entry(row, textvariable=var, width=width, show=show)
+        entry.pack(side="left", fill="x", expand=True)
+        return row, entry
+
+    def _tab_identity(self, nb):
+        f = ttk.Frame(nb)
+        self._row(f, t("Your callsign"), "my_callsign", self.cfg.my_callsign)
+
+        row = ttk.Frame(f)
+        row.pack(fill="x", padx=10, pady=4)
+        ttk.Label(row, text=t("Language"), width=18).pack(side="left")
+        lang = tk.StringVar(value=self.cfg.language or "auto")
+        self.vars["language"] = lang
+        ttk.Combobox(row, textvariable=lang, width=20, state="readonly",
+                     values=["auto", *SUPPORTED]).pack(side="left")
+        ttk.Label(f, text=t("'auto' follows the computer's own language."),
+                  foreground="#666").pack(anchor="w", padx=10)
+        return f
+
+    def _tab_email(self, nb):
+        f = ttk.Frame(nb)
+        self._row(f, t("Server"), "smtp.host", self.cfg.smtp.host)
+        self._row(f, t("Port"), "smtp.port", self.cfg.smtp.port, width=10)
+        self._row(f, t("Your name"), "smtp.from_name", self.cfg.smtp.from_name)
+        self._row(f, t("Your address"), "smtp.from_address",
+                  self.cfg.smtp.from_address)
+        self._row(f, t("Sign in as"), "smtp.username", self.cfg.smtp.username)
+
+        # Password: masked by default, revealed by the checkbox.
+        row, entry = self._row(f, t("Password"), "smtp.password",
+                               self.cfg.smtp.password, show="\u2022")
+        self._pw_entry = entry
+        self._pw_shown = tk.BooleanVar(value=False)
+        ttk.Checkbutton(row, text=t("Show"), variable=self._pw_shown,
+                        command=self._toggle_password).pack(side="left", padx=6)
+        ttk.Label(
+            f,
+            text=t("For Gmail this is a 16-character App Password, "
+                   "not your normal password."),
+            foreground="#666", wraplength=430, justify="left",
+        ).pack(anchor="w", padx=10, pady=(2, 6))
+        return f
+
+    def _toggle_password(self) -> None:
+        self._pw_entry.configure(show="" if self._pw_shown.get() else "\u2022")
+
+    def _tab_message(self, nb):
+        """Subject and body of the e-mail, with a live preview."""
+        f = ttk.Frame(nb)
+        self._row(f, t("Subject"), "smtp.subject", self.cfg.smtp.subject, width=44)
+
+        ttk.Label(f, text=t("Message text")).pack(anchor="w", padx=10, pady=(8, 2))
+        wrap = ttk.Frame(f)
+        wrap.pack(fill="both", expand=True, padx=10)
+        self.body_text = tk.Text(wrap, height=10, width=58, wrap="word")
+        body_scroll = ttk.Scrollbar(wrap, command=self.body_text.yview)
+        self.body_text.configure(yscrollcommand=body_scroll.set)
+        self.body_text.pack(side="left", fill="both", expand=True)
+        body_scroll.pack(side="right", fill="y")
+
+        # Read the block from the file: cfg.smtp.body is the same text, but
+        # reading it back keeps this tab honest about what is actually stored.
+        stored = None
+        if self.app.config_path:
+            try:
+                stored = read_block_scalar(self.app.config_path, "smtp.body")
+            except Exception:
+                stored = None
+        self.body_text.insert("1.0", stored if stored is not None else self.cfg.smtp.body)
+
+        ttk.Label(
+            f,
+            text=t("You can use: {placeholders}"
+                   ).replace("{placeholders}",
+                             "{name_first} {callsign} {date} {utc} {qrg} "
+                             "{mode} {rst} {my_callsign}"),
+            foreground="#666", wraplength=430, justify="left",
+        ).pack(anchor="w", padx=10, pady=(4, 0))
+
+        ttk.Button(f, text=t("Preview…"), command=self._preview_message).pack(
+            anchor="w", padx=10, pady=6)
+        return f
+
+    def _preview_message(self) -> None:
+        """Fill the subject and body with a real QSO, so wording can be checked."""
+        subject = self.vars["smtp.subject"].get()
+        body = self.body_text.get("1.0", "end").rstrip("\n")
+
+        values = None
+        adif = self.app.adif.get().strip()
+        if adif and Path(adif).is_file():
+            try:
+                from qsl_send.adif import read_adif
+                from qsl_send.fields import placeholders
+
+                qsos = read_adif(Path(adif))
+                if qsos:
+                    values = placeholders(
+                        qsos[0],
+                        date_format=self.cfg.date_format,
+                        time_format=self.cfg.time_format,
+                        qrg_decimals=self.cfg.qrg_decimals,
+                        my_callsign=self.vars["my_callsign"].get()
+                        or self.cfg.my_callsign,
+                    )
+            except Exception:
+                values = None
+        if values is None:
+            values = {
+                "name_first": "Ana", "callsign": "AA1AA", "date": "13/09/2026",
+                "utc": "17:49", "qrg": "7.133", "mode": "SSB", "rst": "59",
+                "my_callsign": self.cfg.my_callsign or "MY1CLL",
+            }
+
+        from qsl_send.fields import format_template
+
+        win = tk.Toplevel(self)
+        win.title(t("Preview"))
+        win.transient(self)
+        box = ttk.Frame(win)
+        box.pack(fill="both", expand=True, padx=12, pady=12)
+        ttk.Label(box, text=t("Subject") + ": " + format_template(subject, values),
+                  font=("", 0, "bold"), wraplength=460,
+                  justify="left").pack(anchor="w", pady=(0, 8))
+        preview = tk.Text(box, height=12, width=58, wrap="word")
+        preview.insert("1.0", format_template(body, values))
+        preview.configure(state="disabled")
+        preview.pack(fill="both", expand=True)
+        ttk.Button(box, text=t("Close"), command=win.destroy).pack(anchor="e", pady=(8, 0))
+
+    def _tab_contacts(self, nb):
+        """Edit contacts.yaml: addresses and names the log and QRZ do not have."""
+        f = ttk.Frame(nb)
+        ttk.Label(
+            f,
+            text=t("Addresses and names you looked up yourself. These win over "
+                   "the log and QRZ."),
+            foreground="#666", wraplength=440, justify="left",
+        ).pack(anchor="w", padx=10, pady=(8, 4))
+
+        cols = ("callsign", "email", "name")
+        self.contacts_tree = ttk.Treeview(
+            f, columns=cols, show="headings", height=8, selectmode="browse")
+        for col, title, width in (
+            ("callsign", t("Callsign"), 90),
+            ("email", t("E-mail"), 210),
+            ("name", t("Name"), 130),
+        ):
+            self.contacts_tree.heading(col, text=title)
+            self.contacts_tree.column(col, width=width, anchor="w")
+        scroll = ttk.Scrollbar(f, command=self.contacts_tree.yview)
+        self.contacts_tree.configure(yscrollcommand=scroll.set)
+        self.contacts_tree.pack(side="top", fill="both", expand=True, padx=(10, 0))
+        self.contacts_tree.bind("<Double-1>", lambda _e: self._edit_contact())
+
+        self._contacts: dict[str, Contact] = {}
+        self._contacts_path = None
+        self._load_contacts_into_tree()
+
+        row = ttk.Frame(f)
+        row.pack(fill="x", padx=10, pady=6)
+        ttk.Button(row, text=t("Add…"), command=self._add_contact).pack(side="left")
+        ttk.Button(row, text=t("Edit…"), command=self._edit_contact).pack(
+            side="left", padx=6)
+        ttk.Button(row, text=t("Remove"), command=self._remove_contact).pack(side="left")
+        return f
+
+    def _offer_prefill(self) -> None:
+        """Walk the user through the callsigns the analysis flagged."""
+        pending = [c for c in self._prefill if c not in self._contacts]
+        if not pending:
+            return
+        if not messagebox.askyesno(
+            t("Address book"),
+            t("Add the {count} missing contact(s) now?", count=len(pending)),
+            default="yes",
+        ):
+            return
+        for call in pending:
+            self._add_contact(prefill=call)
+
+    def _load_contacts_into_tree(self) -> None:
+        path = self.cfg.resolve(self.cfg.contacts_file) if self.cfg.contacts_file else None
+        self._contacts_path = path
+        self._contacts = {}
+        if path and Path(path).is_file():
+            try:
+                self._contacts, warns = load_contacts(path)
+                for w in warns:
+                    self.app.log(f"! {w}")
+            except ContactsError as exc:
+                self.app.log(str(exc))
+        self._refresh_contacts_tree()
+
+    def _refresh_contacts_tree(self) -> None:
+        self.contacts_tree.delete(*self.contacts_tree.get_children())
+        for call in sorted(self._contacts):
+            entry = self._contacts[call]
+            self.contacts_tree.insert(
+                "", "end", iid=call, values=(call, entry.email, entry.name))
+
+    def _contact_form(self, call="", email="", name=""):
+        """Ask for one entry. Returns a Contact, or None if cancelled."""
+        win = tk.Toplevel(self)
+        win.title(t("Contact"))
+        win.transient(self)
+        win.resizable(False, False)
+        vars_ = {}
+        for label, key, value in (
+            (t("Callsign"), "callsign", call),
+            (t("E-mail"), "email", email),
+            (t("Name"), "name", name),
+        ):
+            r = ttk.Frame(win)
+            r.pack(fill="x", padx=12, pady=5)
+            ttk.Label(r, text=label, width=12).pack(side="left")
+            v = tk.StringVar(value=value)
+            vars_[key] = v
+            entry = ttk.Entry(r, textvariable=v, width=32)
+            entry.pack(side="left")
+            if key == "callsign" and call:
+                entry.configure(state="disabled")  # the callsign is the key
+
+        result: dict[str, Contact | None] = {"value": None}
+
+        def ok():
+            from qsl_send.qrz import valid_email
+            from qsl_send.adif import base_callsign
+
+            cs = base_callsign(vars_["callsign"].get().strip())
+            em = vars_["email"].get().strip()
+            nm = vars_["name"].get().strip()
+            if not cs:
+                messagebox.showwarning(t("Contact"), t("Enter a callsign."))
+                return
+            if em and not valid_email(em):
+                messagebox.showwarning(
+                    t("Contact"), t("That does not look like an e-mail address."))
+                return
+            if not em and not nm:
+                messagebox.showwarning(
+                    t("Contact"), t("Enter an e-mail address, a name, or both."))
+                return
+            result["value"] = Contact(callsign=cs, email=em, name=nm)
+            win.destroy()
+
+        buttons = ttk.Frame(win)
+        buttons.pack(fill="x", padx=12, pady=(4, 12))
+        ttk.Button(buttons, text=t("Cancel"), command=win.destroy).pack(side="right")
+        ttk.Button(buttons, text=t("OK"), command=ok).pack(side="right", padx=6)
+        win.bind("<Map>", lambda _e: (win.unbind("<Map>"), win.grab_set()))
+        self.wait_window(win)
+        return result["value"]
+
+    def _add_contact(self, prefill: str = "") -> None:
+        entry = self._contact_form(call=prefill)
+        if entry:
+            self._contacts[entry.callsign] = entry
+            self._refresh_contacts_tree()
+            self.contacts_tree.selection_set(entry.callsign)
+            self.contacts_tree.see(entry.callsign)
+
+    def _edit_contact(self) -> None:
+        sel = self.contacts_tree.selection()
+        if not sel:
+            return
+        call = sel[0]
+        current = self._contacts[call]
+        entry = self._contact_form(call, current.email, current.name)
+        if entry:
+            self._contacts[call] = entry
+            self._refresh_contacts_tree()
+
+    def _remove_contact(self) -> None:
+        sel = self.contacts_tree.selection()
+        if not sel:
+            return
+        call = sel[0]
+        if messagebox.askyesno(
+            t("Address book"),
+            t("Remove {callsign} from the address book?", callsign=call),
+            default="no",
+        ):
+            self._contacts.pop(call, None)
+            self._refresh_contacts_tree()
+
+    def _tab_behaviour(self, nb):
+        f = ttk.Frame(nb)
+        self._row(f, t("Save cards to"), "output_dir", self.cfg.output_dir)
+        self._row(f, t("Address book"), "contacts_file", self.cfg.contacts_file)
+        self._row(f, t("Pause between e-mails"), "smtp.delay",
+                  self.cfg.smtp.delay, width=10)
+
+        skip = tk.BooleanVar(value=self.cfg.skip_without_email)
+        self.vars["skip_without_email"] = skip
+        ttk.Checkbutton(
+            f, text=t("Skip contacts with no e-mail address"), variable=skip,
+        ).pack(anchor="w", padx=10, pady=6)
+        return f
+
+    # -- saving --------------------------------------------------------
+
+    def on_save(self) -> None:
+        changes: dict[str, object] = {}
+        for key, var in self.vars.items():
+            value = var.get()
+            if key == "language":
+                value = "" if value == "auto" else value
+            elif key == "smtp.port":
+                try:
+                    value = int(str(value).strip())
+                except ValueError:
+                    messagebox.showwarning(
+                        t("Settings"), t("The port must be a whole number."))
+                    return
+            elif key == "smtp.delay":
+                try:
+                    value = float(str(value).strip())
+                except ValueError:
+                    messagebox.showwarning(
+                        t("Settings"),
+                        t("The pause must be a number of seconds."))
+                    return
+            changes[key] = value
+
+        # Never let an empty password box wipe a stored password. The box can
+        # legitimately come up empty — for instance when the config points at
+        # ${SMTP_PASSWORD} and no .env is present — and saving then would
+        # silently destroy a working setup.
+        allow_pw = True
+        if not str(changes.get("smtp.password", "")).strip():
+            changes.pop("smtp.password", None)
+            allow_pw = False
+
+        try:
+            written = update_settings(
+                self.app.config_path,
+                changes,
+                # A typed password deliberately replaces ${SMTP_PASSWORD};
+                # every other placeholder stays exactly as written.
+                allow_replacing_placeholders=(
+                    {"smtp.password"} if allow_pw else frozenset()
+                ),
+            )
+        except SettingsWriteError as exc:
+            messagebox.showerror(t("Settings"), str(exc))
+            return
+
+        # The body is a multi-line block, so it is written separately; a
+        # normal line replacement would orphan its text and corrupt the file.
+        try:
+            body = self.body_text.get("1.0", "end").rstrip("\n")
+            if update_block_scalar(self.app.config_path, "smtp.body", body):
+                written = list(written) + ["smtp.body"]
+        except SettingsWriteError as exc:
+            messagebox.showerror(t("Settings"), str(exc))
+            return
+
+        # The address book lives in its own file, so it saves separately.
+        if getattr(self, "_contacts_path", None):
+            try:
+                save_contacts(self._contacts_path, self._contacts)
+            except ContactsError as exc:
+                messagebox.showerror(t("Address book"), str(exc))
+                return
+
+        if "language" in written:
+            set_language(changes["language"] or None)  # type: ignore[arg-type]
+            messagebox.showinfo(
+                t("Settings"),
+                t("The new language will be used next time you open the window."))
+
+        self.app.log(t("Saved {count} setting(s).", count=len(written)))
+        self.app._load_config_defaults()
+        self.destroy()
 
 
 def _ask_string(parent, title, prompt) -> str:

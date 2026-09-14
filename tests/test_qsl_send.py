@@ -241,3 +241,112 @@ if __name__ == "__main__":
     import subprocess
 
     raise SystemExit(subprocess.call([sys.executable, "-m", "pytest", "-q", __file__]))
+
+
+def test_a_contact_with_an_email_but_no_name_is_flagged(tmp_path):
+    """A greeting would fall back to the callsign, so it is worth reporting."""
+    from qsl_send.config import load_config
+    from qsl_send.pipeline import generate_cards
+
+    adif = tmp_path / "log.adi"
+    adif.write_text(
+        "<eoh>\n"
+        "<call:5>AA1AA<qso_date:8>20260913<email:15>ana@example.com<name:3>Ana<eor>\n"
+        "<call:5>BB2BB<qso_date:8>20260913<email:15>bob@example.com<eor>\n"
+        "<call:5>CC3CC<qso_date:8>20260913<name:5>Carla<eor>\n",
+        encoding="utf-8",
+    )
+    summary = generate_cards(
+        load_config(None),
+        adif_path=adif,
+        template_path=_blank_template(tmp_path / "t.jpg"),
+        output_dir=tmp_path / "out",
+        use_qrz=False,
+    )
+    by = {r.callsign: r.status for r in summary.results}
+    assert by == {"AA1AA": "ok", "BB2BB": "no_name", "CC3CC": "no_email"}
+    assert summary.without_name == 1
+    assert summary.needing_contacts == ["BB2BB", "CC3CC"]
+
+
+def test_contacts_round_trip_through_save_and_load(tmp_path):
+    from qsl_send.contacts import Contact, load_contacts, save_contacts
+
+    path = tmp_path / "contacts.yaml"
+    path.write_text("# a header comment\n# explaining the format\n\n"
+                    "AA1AA: old@example.com\n", encoding="utf-8")
+    contacts, _ = load_contacts(path)
+    contacts["BB2BB"] = Contact("BB2BB", email="bob@example.com", name="Bob")
+    save_contacts(path, contacts)
+
+    again, warnings = load_contacts(path)
+    assert warnings == []
+    assert again["AA1AA"].email == "old@example.com"
+    assert again["AA1AA"].name == ""
+    assert again["BB2BB"].email == "bob@example.com"
+    assert again["BB2BB"].name == "Bob"
+
+
+def test_saving_contacts_keeps_the_header_comments(tmp_path):
+    from qsl_send.contacts import load_contacts, save_contacts
+
+    path = tmp_path / "contacts.yaml"
+    path.write_text("# how this file works\n# second line\n\n"
+                    "AA1AA: a@example.com\n", encoding="utf-8")
+    contacts, _ = load_contacts(path)
+    save_contacts(path, contacts)
+    text = path.read_text(encoding="utf-8")
+    assert "# how this file works" in text
+    assert "# second line" in text
+
+
+def test_an_entry_with_only_an_address_stays_in_the_simple_form(tmp_path):
+    from qsl_send.contacts import Contact, save_contacts
+
+    path = tmp_path / "contacts.yaml"
+    save_contacts(path, {"AA1AA": Contact("AA1AA", email="a@example.com")})
+    assert "AA1AA: a@example.com" in path.read_text(encoding="utf-8")
+
+
+def test_an_empty_contact_is_not_written(tmp_path):
+    from qsl_send.contacts import Contact, load_contacts, save_contacts
+
+    path = tmp_path / "contacts.yaml"
+    save_contacts(path, {"AA1AA": Contact("AA1AA"),
+                         "BB2BB": Contact("BB2BB", email="b@example.com")})
+    contacts, _ = load_contacts(path)
+    assert "AA1AA" not in contacts
+    assert "BB2BB" in contacts
+
+
+def test_sendable_matches_what_the_send_queue_actually_does(tmp_path):
+    """`sendable` must not disagree with build_queue, or it becomes a trap.
+
+    A contact with an address but no name is delivered (the greeting falls
+    back to the callsign), so it must report as sendable.
+    """
+    from qsl_send.config import load_config
+    from qsl_send.pipeline import generate_cards
+    from qsl_send.report import write_manifest
+    from qsl_send.sending import build_queue
+
+    adif = tmp_path / "log.adi"
+    adif.write_text(
+        "<eoh>\n"
+        "<call:5>AA1AA<qso_date:8>20260913<email:15>ana@example.com<name:3>Ana<eor>\n"
+        "<call:5>BB2BB<qso_date:8>20260913<email:15>bob@example.com<eor>\n"
+        "<call:5>CC3CC<qso_date:8>20260913<name:5>Carla<eor>\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(None)
+    out = tmp_path / "out"
+    summary = generate_cards(
+        cfg, adif_path=adif, template_path=_blank_template(tmp_path / "t.jpg"),
+        output_dir=out, use_qrz=False,
+    )
+    write_manifest(summary, out)
+    cfg.smtp.host = "smtp.example.com"
+
+    queued = {item.callsign for item in build_queue(cfg, out).items}
+    reported = {r.callsign for r in summary.results if r.sendable}
+    assert queued == reported == {"AA1AA", "BB2BB"}

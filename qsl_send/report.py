@@ -68,6 +68,8 @@ def format_summary(summary: RunSummary, output_dir: Path) -> str:
         f"  Ready to e-mail      : {summary.with_email}",
         f"  Missing an address   : {summary.without_email}",
     ]
+    if summary.without_name:
+        lines.append(f"  No name logged       : {summary.without_name}")
     if summary.errors:
         lines.append(f"  Errors               : {summary.errors}")
     if summary.qrz_queried:

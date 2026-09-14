@@ -73,6 +73,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="resolve recipients and write the manifest without rendering images",
     )
+    gen.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="skip the confirmation when the output folder holds another activation",
+    )
     gen.add_argument("-q", "--quiet", action="store_true", help="only print the summary")
 
     check = sub.add_parser(
@@ -218,6 +224,27 @@ def cmd_generate(args: argparse.Namespace) -> int:
             print(f"Contacts : {contacts_path} — {len(contacts)} override(s)")
         print(f"Output   : {output}")
         print()
+
+    # One folder per activation: warn before overwriting a different batch's
+    # manifest. Regenerating the same activation passes silently.
+    from qsl_send.workspace import adif_dates, inspect, warning_for
+
+    warning = warning_for(inspect(output), adif_dates(adif))
+    if warning:
+        print(f"! {warning}\n")
+        if not args.yes and not args.quiet:
+            if not sys.stdin.isatty():
+                print(
+                    "error: refusing to overwrite it without confirmation. "
+                    "Re-run with --yes, or choose another --output-dir.",
+                    file=sys.stderr,
+                )
+                return 2
+            reply = input("Continue anyway? [y/N] ").strip().lower()
+            if reply not in ("y", "yes", "s", "si", "sí"):
+                print("Cancelled — nothing was written.")
+                return 1
+            print()
 
     summary = generate_cards(
         cfg,

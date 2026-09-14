@@ -137,3 +137,30 @@ def test_the_catalogue_covers_the_gui_button_and_status_strings():
     ]
     for key in must_cover:
         assert key in i18n._CATALOGUES["es"], f"no Spanish for {key!r}"
+
+
+def test_the_author_credit_is_fixed_not_the_user_callsign():
+    """The title credits whoever wrote the app, never whoever is running it.
+
+    These are different things: a colleague using the tool must still see
+    "by LU2AOG", not their own callsign.
+
+    Read as source rather than imported: qsl_send.gui exits at import time on a
+    Python built without tkinter, which the test environment may well be.
+    """
+    source = (Path(__file__).resolve().parents[1] / "qsl_send" / "gui.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'AUTHOR_CALLSIGN = "LU2AOG"' in source
+
+    # The credit must not be derived from configuration in any way.
+    title_fn = source.split("def _window_title")[1].split("\n    def ")[0]
+    assert "AUTHOR_CALLSIGN" in title_fn
+    assert "my_callsign" not in title_fn
+
+
+def test_the_author_credit_translates():
+    set_language("en")
+    assert t("by {callsign}", callsign="LU2AOG") == "by LU2AOG"
+    set_language("es")
+    assert t("by {callsign}", callsign="LU2AOG") == "por LU2AOG"
