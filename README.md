@@ -46,6 +46,7 @@ address, and which callsigns are missing one.
 | Command | What it does |
 | --- | --- |
 | `qsl-send check` | Validates the config, log and template; prints the field boxes and how many QSOs carry an `<email>` field. Writes nothing. |
+| `qsl-send detect-fields` | Finds the template's field boxes automatically and prints them as YAML; `--write` puts them in the config. |
 | `qsl-send generate` | Renders the cards and writes the manifest. Sends nothing. |
 | `qsl-send send` | E-mails the cards listed in the manifest. Previews by default; `--confirm` delivers. |
 
@@ -119,6 +120,58 @@ greeting never renders as `Hola !`.
 Open the template in any image editor, read off the rectangle of the blank box
 in pixels, and put those four numbers in `box`. Then re-run
 `qsl-send generate --limit 1` and look at the single card produced.
+
+### Finding the boxes automatically
+
+Measuring seven rectangles by hand for every new card gets old. `detect-fields`
+finds them for you:
+
+```bash
+qsl-send detect-fields QSL_CARD.jpg --preview check.jpg   # look first
+qsl-send detect-fields QSL_CARD.jpg --write               # write into the config
+```
+
+It scans the lower part of the card for flat rectangles of a single colour —
+which is how QSL cards almost always mark write-in areas — and prints a
+ready-to-paste YAML block. It is entirely local: no network, no OCR, no image
+service. Pillow only.
+
+```
+Template : QSL_CARD.jpg (1607x1061)
+Fill     : #00AFF0
+Rows     : 1    Boxes: 7
+
+  #  row  box                        name
+  0  0    [402, 920, 174, 41]        fecha
+  1  0    [586, 921, 173, 41]        qso_con
+  ...
+```
+
+**Names come from reading order, not from the card.** The detector finds
+geometry; it cannot know which box is which. It assumes the usual order —
+date, callsign, name, QRG, UTC, mode, RST — and says so on every run. Check the
+names before using them, and pass `--order a,b,c,...` if your card differs.
+Multi-row layouts are handled: boxes are grouped into rows top to bottom, then
+read left to right within each row.
+
+Useful flags:
+
+```
+--write            replace render.template_size and render.fields in the config
+--preview FILE     save the template with detected boxes outlined and numbered
+--order a,b,c      field names in reading order
+--search-top 0.55  only look below this fraction of the card height
+--tolerance 26     colour match tolerance
+--colour RRGGBB    force the fill colour instead of detecting it
+```
+
+If it finds nothing, the boxes are probably above the default cutoff
+(`--search-top 0.3`) or the fill is not flat enough to detect — name it
+directly with `--colour`. If it finds too many, some artwork matches the box
+colour; raise `--search-top` to exclude it.
+
+`--write` rewrites the `template_size` and `fields` region of the config and
+does not preserve hand-written comments in that block. Check the diff.
 
 ### Regenerating the example template
 
@@ -304,7 +357,8 @@ while you send.
 ```
 
 Fixtures use placeholder callsigns and `example.com` addresses throughout — no
-data from a real log.
+data from a real log. The detector tests draw their own synthetic cards rather
+than reading the real templates, which are git-ignored.
 
 ## Not done yet
 

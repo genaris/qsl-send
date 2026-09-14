@@ -18,6 +18,7 @@ contacts.yaml
 contacts.yml
 
 # Generated cards and reports
-output/
+output*/
 .claude/settings.json
 *.adi
+QSL_*.jpg

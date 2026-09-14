@@ -82,6 +82,47 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("-a", "--adif", help="ADIF log file")
     check.add_argument("-t", "--template", help="QSL template image")
 
+    det = sub.add_parser(
+        "detect-fields",
+        help="find the field boxes in a template image automatically",
+        description=(
+            "Locate the blank write-in boxes in a QSL template by scanning for "
+            "flat rectangles of a single colour, and print them as a ready-to-"
+            "paste YAML fields block. Entirely local: no network, no OCR."
+        ),
+    )
+    det.add_argument("template", nargs="?", help="template image (default: from config)")
+    det.add_argument("-c", "--config", help="YAML config file (default: ./qsl-send.yaml)")
+    det.add_argument(
+        "--write",
+        action="store_true",
+        help="write render.fields and render.template_size into the config",
+    )
+    det.add_argument(
+        "--preview",
+        metavar="FILE",
+        help="save a copy of the template with detected boxes outlined and numbered",
+    )
+    det.add_argument(
+        "--order",
+        help="comma-separated field names in reading order "
+        "(default: fecha,qso_con,nombre,qrg,utc,modo,rst)",
+    )
+    det.add_argument(
+        "--search-top",
+        type=float,
+        default=0.55,
+        help="only look below this fraction of the card height (default: 0.55)",
+    )
+    det.add_argument(
+        "--tolerance", type=int, default=26, help="colour match tolerance (default: 26)"
+    )
+    det.add_argument(
+        "--colour",
+        metavar="RRGGBB",
+        help="force the box fill colour instead of detecting it",
+    )
+
     snd = sub.add_parser(
         "send",
         help="e-mail the cards from a previous 'generate' run",
@@ -234,6 +275,154 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_detect_fields(args: argparse.Namespace) -> int:
+    from qsl_send.detect import DEFAULT_ORDER, detect_boxes, name_boxes
+
+    config_path = Path(args.config) if args.config else _find_default_config()
+    cfg = load_config(config_path)
+
+    template = (
+        Path(args.template).expanduser() if args.template else cfg.resolve(cfg.template)
+    )
+    if not template:
+        raise ConfigError(
+            "No template given. Pass one as an argument or set 'template' in the config."
+        )
+    if not template.is_file():
+        raise ConfigError(f"Template image not found: {template}")
+
+    forced = None
+    if args.colour:
+        raw = args.colour.lstrip("#")
+        if len(raw) != 6:
+            raise ConfigError("--colour must be six hex digits, e.g. 00AFF0")
+        try:
+            forced = tuple(int(raw[i : i + 2], 16) for i in (0, 2, 4))
+        except ValueError as exc:
+            raise ConfigError(f"--colour is not valid hex: {args.colour}") from exc
+
+    detection = detect_boxes(
+        template,
+        search_top=args.search_top,
+        tolerance=args.tolerance,
+        colour=forced,  # type: ignore[arg-type]
+    )
+    if not detection.boxes:
+        print(
+            f"No field boxes found in {template}.\n"
+            "The detector looks for flat rectangles of one colour in the lower "
+            f"{100 - int(args.search_top * 100)}% of the card. Try --search-top 0.3, "
+            "a larger --tolerance, or --colour RRGGBB to name the fill directly.",
+            file=sys.stderr,
+        )
+        return 1
+
+    order = [n.strip() for n in args.order.split(",")] if args.order else None
+    named = name_boxes(detection, order)
+    r, g, b = detection.colour
+
+    print(f"Template : {template} ({detection.size[0]}x{detection.size[1]})")
+    print(f"Fill     : #{r:02X}{g:02X}{b:02X}")
+    print(f"Rows     : {detection.rows}    Boxes: {len(detection.boxes)}")
+    print()
+    print("  #  row  box                        name")
+    for i, (box, name, _value) in enumerate(named):
+        print(f"  {i}  {box.row:<3}  {str(box.box):<25}  {name}")
+
+    expected = len(order or DEFAULT_ORDER)
+    if len(detection.boxes) != expected:
+        print(
+            f"\n! Found {len(detection.boxes)} boxes but expected {expected}. "
+            "Check the list above before using it.",
+            file=sys.stderr,
+        )
+
+    print()
+    print("Names come from reading order, not from the card — verify they match.")
+    print()
+    yaml_block = _fields_yaml(named, detection.size)
+    print(yaml_block)
+
+    if args.preview:
+        _save_preview(template, named, Path(args.preview))
+        print(f"Preview written to {args.preview}")
+
+    if args.write:
+        if cfg.path is None:
+            raise ConfigError("--write needs a config file; none was found.")
+        _write_fields(cfg.path, detection, yaml_block)
+        print(f"Wrote render.template_size and render.fields to {cfg.path}")
+        print("Now run: qsl-send generate --limit 1   and check the card.")
+    return 0
+
+
+def _fields_yaml(named, size: tuple[int, int]) -> str:
+    lines = [
+        f"  template_size: [{size[0]}, {size[1]}]",
+        "  fields:",
+    ]
+    for box, name, value in named:
+        lines.append(f"    - name: {name}")
+        lines.append(f"      box: {box.box}")
+        if value:
+            lines.append(f'      value: "{value}"')
+    return "\n".join(lines)
+
+
+def _save_preview(template: Path, named, out: Path) -> None:
+    from PIL import Image, ImageDraw
+
+    img = Image.open(template).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    for i, (box, name, _v) in enumerate(named):
+        x, y, w, h = box.box
+        draw.rectangle([x - 2, y - 2, x + w + 2, y + h + 2], outline=(255, 0, 0), width=3)
+        draw.text((x + 4, max(0, y - 18)), f"{i} {name}", fill=(255, 0, 0))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    img.save(out)
+
+
+def _write_fields(config_path: Path, detection, yaml_block: str) -> None:
+    """Replace render.template_size and render.fields in the config in place."""
+    text = config_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    out: list[str] = []
+    i = 0
+    replaced = False
+    while i < len(lines):
+        line = lines[i]
+        if not replaced and line.strip().startswith("template_size:"):
+            out.extend(yaml_block.splitlines())
+            i += 1
+            # Skip everything through the end of the existing fields list.
+            while i < len(lines):
+                nxt = lines[i]
+                stripped = nxt.strip()
+                if stripped.startswith("fields:"):
+                    i += 1
+                    while i < len(lines):
+                        f = lines[i]
+                        if f.strip() and not f.startswith(("    -", "      ", "    #")):
+                            break
+                        i += 1
+                    break
+                if stripped and not nxt.startswith(("  #", "    ", "      ")):
+                    break
+                i += 1
+            replaced = True
+            continue
+        out.append(line)
+        i += 1
+
+    if not replaced:
+        raise ConfigError(
+            "Could not find 'template_size:' under render: in the config; "
+            "paste the fields block above in by hand."
+        )
+    config_path.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
 def _output_dir_for(cfg: Config, args: argparse.Namespace) -> Path:
     raw = getattr(args, "output_dir", None) or cfg.output_dir
     out = Path(raw).expanduser()
@@ -313,7 +502,12 @@ def cmd_send(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    handlers = {"generate": cmd_generate, "check": cmd_check, "send": cmd_send}
+    handlers = {
+        "generate": cmd_generate,
+        "check": cmd_check,
+        "send": cmd_send,
+        "detect-fields": cmd_detect_fields,
+    }
     try:
         return handlers[args.command](args)
     except ConfigError as exc:

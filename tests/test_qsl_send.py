@@ -53,6 +53,25 @@ def test_values_containing_angle_brackets_survive():
     assert qsos[0].get("comment") == "<hello>"
 
 
+def test_field_lengths_are_byte_counts_not_character_counts():
+    # ADI declares lengths in bytes. "Ana Bártolo" is 11 characters but 12
+    # bytes in UTF-8, so a character-based slice would swallow the next tag.
+    text = "<eoh><call:5>AA1AA<name:12>Ana Bártolo<mode:3>SSB<eor>"
+    qso = parse_adif(text.encode("utf-8"))[0]
+    assert qso.get("name") == "Ana Bártolo"
+    assert qso.get("mode") == "SSB"
+
+
+def test_parse_accepts_str_as_well_as_bytes():
+    assert parse_adif("<eoh><call:5>AA1AA<eor>")[0].call == "AA1AA"
+
+
+def test_latin1_values_do_not_crash_the_parser():
+    qso = parse_adif(b"<eoh><call:5>AA1AA<name:6>Jos\xe9 B<eor>")[0]
+    assert qso.call == "AA1AA"
+    assert qso.get("name")
+
+
 def test_base_callsign_strips_portable_parts():
     assert base_callsign("N0CALL/P") == "N0CALL"
     assert base_callsign("DL/N0CALL") == "N0CALL"

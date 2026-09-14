@@ -22,8 +22,10 @@ from qsl_send.config import DEFAULT_FIELDS, DEFAULT_TEMPLATE_SIZE  # noqa: E402
 WIDTH, HEIGHT = DEFAULT_TEMPLATE_SIZE  # 1583 x 1061
 
 # Sampled from the reference card so generated text keeps the same contrast.
-BOX_FILL = (145, 216, 246)
-BOX_EDGE = (58, 122, 168)
+# Saturated flat fill, matching how real QSL cards mark write-in areas — this
+# is what qsl_send.detect looks for, so the shipped example is detectable too.
+BOX_FILL = (0, 175, 240)
+BOX_EDGE = (10, 70, 110)
 LABEL = (222, 240, 252)
 ACCENT = (127, 201, 240)
 PALE = (232, 244, 252)

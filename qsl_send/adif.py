@@ -12,7 +12,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
 
-_TAG = re.compile(r"<([^:<>]+)(?::(\d+))?(?::([^:<>]+))?>", re.IGNORECASE)
+# Matched against bytes: ADI field lengths count BYTES, not characters, so an
+# accented value like <name:30>Cristóbal Mariano Di Bártolo (28 chars, 30 bytes
+# in UTF-8) is only sliced correctly before decoding.
+_TAG = re.compile(rb"<([^:<>]+)(?::(\d+))?(?::([^:<>]+))?>", re.IGNORECASE)
 
 
 @dataclass
@@ -30,13 +33,20 @@ class Qso:
         return self.get("call").upper()
 
 
-def _iter_tags(text: str) -> Iterator[tuple[str, str]]:
+def _decode(raw: bytes) -> str:
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1")
+
+
+def _iter_tags(data: bytes) -> Iterator[tuple[str, str]]:
     pos = 0
     while True:
-        m = _TAG.search(text, pos)
+        m = _TAG.search(data, pos)
         if not m:
             return
-        name = m.group(1).strip().lower()
+        name = _decode(m.group(1)).strip().lower()
         length = m.group(2)
         if length is None:
             # Control tag such as <eoh> / <eor>: no payload.
@@ -44,15 +54,18 @@ def _iter_tags(text: str) -> Iterator[tuple[str, str]]:
             pos = m.end()
             continue
         n = int(length)
-        yield name, text[m.end() : m.end() + n]
+        yield name, _decode(data[m.end() : m.end() + n])
         pos = m.end() + n
 
 
-def parse_adif(text: str) -> list[Qso]:
-    """Parse ADIF text into a list of QSOs, in file order."""
-    lowered = text.lower()
-    head_end = lowered.find("<eoh>")
-    body = text[head_end + len("<eoh>") :] if head_end != -1 else text
+def parse_adif(source: str | bytes) -> list[Qso]:
+    """Parse ADIF content into a list of QSOs, in file order.
+
+    Accepts bytes (preferred — field lengths are byte counts) or str.
+    """
+    data = source.encode("utf-8") if isinstance(source, str) else source
+    head_end = data.lower().find(b"<eoh>")
+    body = data[head_end + len(b"<eoh>") :] if head_end != -1 else data
 
     qsos: list[Qso] = []
     current: dict[str, str] = {}
@@ -69,13 +82,8 @@ def parse_adif(text: str) -> list[Qso]:
 
 
 def read_adif(path: str | Path) -> list[Qso]:
-    """Read an ADIF file from disk (UTF-8, falling back to latin-1)."""
-    raw = Path(path).read_bytes()
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        text = raw.decode("latin-1")
-    return parse_adif(text)
+    """Read an ADIF file from disk. Values decode as UTF-8, else latin-1."""
+    return parse_adif(Path(path).read_bytes())
 
 
 def base_callsign(call: str) -> str:
