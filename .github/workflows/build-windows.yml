@@ -1,17 +1,29 @@
 name: Build Windows app
 
-# Builds the Windows application. Runs on demand, and on a version tag, where
-# it also attaches the installer to a GitHub Release for colleagues to download.
+# Builds the Windows application and attaches the installer to a release.
+#
+# Runs when a release is published — which is what merging the Release Please
+# pull request does — so there is a single path from commit to downloadable
+# installer. The tag trigger was deliberately removed: with Release Please
+# creating tags too, two workflows would race to attach the same binary.
+#
+# Can also be run by hand from the Actions tab, which builds and uploads an
+# artifact without touching any release.
 on:
   workflow_dispatch:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
+      # Build the tagged commit, not whatever main happens to be. On a release
+      # event the default ref can be ahead of the tag, which would ship an
+      # installer whose version disagrees with the code inside it.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -40,7 +52,8 @@ jobs:
           path: dist/
 
       - name: Attach the installer to the release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.release.tag_name }}
           files: dist/QSL-Sender-Setup-*.exe
