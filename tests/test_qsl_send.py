@@ -350,3 +350,46 @@ def test_sendable_matches_what_the_send_queue_actually_does(tmp_path):
     queued = {item.callsign for item in build_queue(cfg, out).items}
     reported = {r.callsign for r in summary.results if r.sendable}
     assert queued == reported == {"AA1AA", "BB2BB"}
+
+
+def test_saving_contacts_creates_the_directory_if_missing(tmp_path):
+    """An installed application keeps settings under AppData, which may not
+    exist yet the first time someone adds a contact."""
+    from qsl_send.contacts import Contact, load_contacts, save_contacts
+
+    target = tmp_path / "not" / "there" / "contacts.yaml"
+    save_contacts(target, {"AA1AA": Contact("AA1AA", email="a@example.com")})
+
+    assert target.is_file()
+    again, warnings = load_contacts(target)
+    assert warnings == []
+    assert again["AA1AA"].email == "a@example.com"
+
+
+def test_saving_contacts_creates_the_file_when_absent(tmp_path):
+    from qsl_send.contacts import Contact, load_contacts, save_contacts
+
+    target = tmp_path / "contacts.yaml"
+    assert not target.exists()
+    save_contacts(target, {"BB2BB": Contact("BB2BB", email="b@example.com", name="Bob")})
+
+    again, _ = load_contacts(target)
+    assert again["BB2BB"].name == "Bob"
+
+
+def test_contacts_file_is_a_writable_top_level_key(tmp_path):
+    """The window records the fallback path so the next run finds it.
+
+    It ships commented out, which left cfg.contacts_file empty and made the
+    address book save a silent no-op.
+    """
+    import yaml
+
+    from qsl_send.settings_io import update_settings
+
+    p = tmp_path / "qsl-send.yaml"
+    p.write_text(
+        "# contacts_file: contacts.yaml\nmy_callsign: AA1AA\n", encoding="utf-8")
+
+    assert update_settings(p, {"contacts_file": "contacts.yaml"}) == ["contacts_file"]
+    assert yaml.safe_load(p.read_text(encoding="utf-8"))["contacts_file"] == "contacts.yaml"

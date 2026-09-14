@@ -112,6 +112,14 @@ _ES: dict[str, str] = {
         "Se creó un archivo de configuración en {path}",
     "Could not create a settings file at {path}.":
         "No se pudo crear un archivo de configuración en {path}.",
+    # credentials check before sending
+    "E-mail settings": "Configuración de correo",
+    "your own e-mail address": "tu propia dirección de correo",
+    "your password": "tu contraseña",
+    "your own sign-in address": "tu propia dirección de inicio de sesión",
+    "Before sending, {missing} is needed in Settings.\n\nOpen Settings now?":
+        "Antes de enviar hace falta {missing} en Configuración.\n\n"
+        "¿Abrir Configuración ahora?",
     # output-folder confirmation
     "Check the folder": "Revisá la carpeta",
     "Continue anyway?": "¿Continuar igual?",

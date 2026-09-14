@@ -68,6 +68,10 @@ def save_contacts(path: str | Path, contacts: dict[str, Contact]) -> None:
 
     tmp = p.with_suffix(p.suffix + ".tmp")
     try:
+        # Create the directory first: an installed application keeps its
+        # settings under AppData, and that folder may not exist yet the first
+        # time someone adds a contact.
+        p.parent.mkdir(parents=True, exist_ok=True)
         tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
         tmp.replace(p)
     except OSError as exc:

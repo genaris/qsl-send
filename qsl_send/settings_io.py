@@ -238,6 +238,29 @@ def _find_line(lines: list[str], dotted: str) -> int | None:
     return None
 
 
+def _comment_hint(lines: list[str], dotted: str) -> int:
+    """Where to insert a new top-level key.
+
+    Right after a commented-out example of it when one exists, so the value
+    lands beside the comment explaining it. Otherwise before the first nested
+    block, which keeps top-level keys together.
+    """
+    commented = re.compile(rf"^\s*#\s*{re.escape(dotted)}\s*:")
+    for i, line in enumerate(lines):
+        if commented.match(line):
+            # Replace the commented example rather than sitting beside it:
+            # two lines for one key reads as a mistake.
+            lines.pop(i)
+            return i
+    for i, line in enumerate(lines):
+        m = _KEY_LINE.match(line)
+        if m and len(m.group("indent")) == 0:
+            rest, _ = _split_comment(m.group("rest"))
+            if not rest.strip():          # a block header such as `smtp:`
+                return i
+    return len(lines)
+
+
 def update_settings(
     path: str | Path,
     changes: dict[str, Any],
@@ -268,7 +291,17 @@ def update_settings(
     for dotted, value in changes.items():
         idx = _find_line(lines, dotted)
         if idx is None:
-            continue  # absent keys are left alone rather than invented
+            # The key is absent, or present only as a comment (an example file
+            # ships `# language: es`). Silently dropping the write is worse
+            # than adding the key: the settings window appeared to save and
+            # then forgot the choice. Only top-level keys are added, since
+            # inventing a nested block would be guesswork.
+            if "." in dotted:
+                continue
+            insert_at = _comment_hint(lines, dotted)
+            lines.insert(insert_at, f"{dotted}: {_format(value)}")
+            written.append(dotted)
+            continue
         m = _KEY_LINE.match(lines[idx])
         if not m:
             continue

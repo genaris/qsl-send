@@ -85,6 +85,8 @@ class App:
         root.title(self._window_title())
         root.geometry("760x620")
         root.minsize(680, 560)
+        # Centred on the screen: Tk defaults to the top-left corner.
+        root.after(0, lambda: center_window(root))
 
         self.template = tk.StringVar()
         self.adif = tk.StringVar()
@@ -194,7 +196,13 @@ class App:
 
     # ------------------------------------------------------------ behaviour
 
-    def _load_config_defaults(self) -> None:
+    def _load_config_defaults(self, keep_files: bool = False) -> None:
+        """Populate the window from the configuration file.
+
+        `keep_files` preserves whatever is currently in the Files section:
+        after saving settings those values are already correct, and reloading
+        them from disk would discard a file the user had just chosen.
+        """
         try:
             cfg = load_config(self.config_path)
         except ConfigError as exc:
@@ -204,11 +212,11 @@ class App:
         if cfg.template:
             # Not named `t`: that shadows the translator imported above.
             template_path = cfg.resolve(cfg.template)
-            if template_path:
+            if template_path and not (keep_files and self.template.get().strip()):
                 self.template.set(str(template_path))
         if cfg.adif:
             a = cfg.resolve(cfg.adif)
-            if a:
+            if a and not (keep_files and self.adif.get().strip()):
                 self.adif.set(str(a))
         # A relative "output" resolves against the settings file. For an
         # installed application that file lives in AppData (or Application
@@ -227,7 +235,8 @@ class App:
             )
             if inside_settings_dir and not out.exists():
                 out = default_output_dir()
-        self.outdir.set(str(out or default_output_dir()))
+        if not (keep_files and self.outdir.get().strip()):
+            self.outdir.set(str(out or default_output_dir()))
         if cfg.render.fields:
             self.fields_label.configure(
                 text=t("{count} fields configured.",
@@ -519,12 +528,40 @@ class App:
             return
         self._run(lambda: self._deliver("", None, confirm=True))
 
+    def _check_credentials(self, cfg) -> bool:
+        """Warn before contacting the server, rather than after it refuses.
+
+        A missing password produces "530 Authentication Required", which says
+        nothing about what to fix or where.
+        """
+        missing = None
+        if not cfg.smtp.from_address.strip():
+            missing = t("your own e-mail address")
+        elif cfg.smtp.username.strip() and not cfg.smtp.password.strip():
+            missing = t("your password")
+        elif cfg.smtp.username.strip().startswith(("myemail@", "your", "user@")):
+            missing = t("your own sign-in address")
+
+        if missing is None:
+            return True
+
+        if messagebox.askyesno(
+            t("E-mail settings"),
+            t("Before sending, {missing} is needed in Settings.\n\n"
+              "Open Settings now?", missing=missing),
+            default="yes",
+        ):
+            self.on_settings()
+        return False
+
     def _deliver(self, to_override: str, limit, confirm: bool) -> int:
         from qsl_send.mailer import SentLog, deliver
         from qsl_send.sending import build_queue, format_preview
 
         outdir = Path(self.outdir.get().strip() or ".")
         cfg = load_config(self.config_path)
+        if confirm and not self._check_credentials(cfg):
+            return 0
         sent_log = SentLog(outdir / "sent.json")
         q = build_queue(cfg, outdir, to_override=to_override, limit=limit,
                         sent_log=sent_log)
@@ -601,6 +638,7 @@ class SettingsDialog(tk.Toplevel):
 
     def _on_mapped(self, _event=None) -> None:
         self.unbind("<Map>")
+        center_window(self, self.master)
         try:
             self.grab_set()
         except tk.TclError:
@@ -734,6 +772,7 @@ class SettingsDialog(tk.Toplevel):
         win = tk.Toplevel(self)
         win.title(t("Preview"))
         win.transient(self)
+        win.bind("<Map>", lambda _e: (win.unbind("<Map>"), center_window(win, self)))
         box = ttk.Frame(win)
         box.pack(fill="both", expand=True, padx=12, pady=12)
         ttk.Label(box, text=t("Subject") + ": " + format_template(subject, values),
@@ -797,7 +836,15 @@ class SettingsDialog(tk.Toplevel):
             self._add_contact(prefill=call)
 
     def _load_contacts_into_tree(self) -> None:
-        path = self.cfg.resolve(self.cfg.contacts_file) if self.cfg.contacts_file else None
+        # Fall back to contacts.yaml beside the settings file. Leaving this as
+        # None when the config does not name one meant the save was skipped in
+        # silence: edits looked accepted and were simply thrown away.
+        if self.cfg.contacts_file:
+            path = self.cfg.resolve(self.cfg.contacts_file)
+        elif self.app.config_path is not None:
+            path = Path(self.app.config_path).parent / "contacts.yaml"
+        else:
+            path = None
         self._contacts_path = path
         self._contacts = {}
         if path and Path(path).is_file():
@@ -865,7 +912,8 @@ class SettingsDialog(tk.Toplevel):
         buttons.pack(fill="x", padx=12, pady=(4, 12))
         ttk.Button(buttons, text=t("Cancel"), command=win.destroy).pack(side="right")
         ttk.Button(buttons, text=t("OK"), command=ok).pack(side="right", padx=6)
-        win.bind("<Map>", lambda _e: (win.unbind("<Map>"), win.grab_set()))
+        win.bind("<Map>", lambda _e: (win.unbind("<Map>"), win.grab_set(),
+                                      center_window(win, self)))
         self.wait_window(win)
         return result["value"]
 
@@ -949,15 +997,39 @@ class SettingsDialog(tk.Toplevel):
             changes.pop("smtp.password", None)
             allow_pw = False
 
+        # The Files section is edited on the main window, not in this dialog,
+        # so its values must be carried into the same save. Otherwise they are
+        # lost when the application closes — and, worse, overwritten by the
+        # reload at the end of this method.
+        for key, var in (
+            ("template", self.app.template),
+            ("adif", self.app.adif),
+            ("output_dir", self.app.outdir),
+        ):
+            chosen = var.get().strip()
+            if chosen:
+                changes[key] = chosen
+
+        # Record the address book path when it came from the fallback, so the
+        # next run finds it through the configuration rather than by guessing.
+        if getattr(self, "_contacts_path", None) and not self.cfg.contacts_file:
+            changes["contacts_file"] = "contacts.yaml"
+
+        # Fields this window offers to edit must actually save. They ship as
+        # ${VAR} placeholders in the example config, and the guard that
+        # protects placeholders was silently discarding the write — the window
+        # said it saved and then forgot the value.
+        replaceable = {"smtp.username", "smtp.from_address", "smtp.from_name"}
+        if allow_pw:
+            replaceable.add("smtp.password")
+
         try:
             written = update_settings(
                 self.app.config_path,
                 changes,
-                # A typed password deliberately replaces ${SMTP_PASSWORD};
-                # every other placeholder stays exactly as written.
-                allow_replacing_placeholders=(
-                    {"smtp.password"} if allow_pw else frozenset()
-                ),
+                # Only the keys this window edits. Any other ${VAR} in the file
+                # stays exactly as written.
+                allow_replacing_placeholders=replaceable,
             )
         except SettingsWriteError as exc:
             messagebox.showerror(t("Settings"), str(exc))
@@ -988,8 +1060,37 @@ class SettingsDialog(tk.Toplevel):
                 t("The new language will be used next time you open the window."))
 
         self.app.log(t("Saved {count} setting(s).", count=len(written)))
-        self.app._load_config_defaults()
+        self.app._load_config_defaults(keep_files=True)
         self.destroy()
+
+
+def center_window(window: tk.Misc, parent: tk.Misc | None = None) -> None:
+    """Place `window` in the middle of its parent, or of the screen.
+
+    Tk otherwise puts every window at the top-left corner, which looks broken
+    on a wide screen and hides dialogs behind the main window.
+    """
+    window.update_idletasks()
+    width = window.winfo_width() or window.winfo_reqwidth()
+    height = window.winfo_height() or window.winfo_reqheight()
+
+    if parent is not None and parent.winfo_viewable() and parent.winfo_width() > 1:
+        base_x = parent.winfo_rootx()
+        base_y = parent.winfo_rooty()
+        base_w = parent.winfo_width()
+        base_h = parent.winfo_height()
+    else:
+        base_x = base_y = 0
+        base_w = window.winfo_screenwidth()
+        base_h = window.winfo_screenheight()
+
+    x = base_x + (base_w - width) // 2
+    y = base_y + (base_h - height) // 3      # slightly above centre reads better
+
+    # Never place it off-screen, which can happen on a multi-monitor setup.
+    x = max(0, min(x, window.winfo_screenwidth() - width))
+    y = max(0, min(y, window.winfo_screenheight() - height))
+    window.geometry(f"+{x}+{y}")
 
 
 def _ask_string(parent, title, prompt) -> str:

@@ -9,11 +9,11 @@ output_dir: output
 
 # Optional hand-curated address book for operators the log and QRZ don't cover.
 # Overrides both. Keep it git-ignored — it holds other people's addresses.
-# contacts_file: contacts.yaml
+contacts_file: contacts.yaml
 
 # Language of the desktop window: "en", "es", or leave unset to follow the
 # computer's own language setting. Does not affect the command line.
-# language: es
+language: ""            # "en", "es", or empty to follow the computer
 
 # Printed as {my_callsign}; falls back to the ADIF <station_callsign>.
 my_callsign: MY1CLL/A
