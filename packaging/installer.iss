@@ -16,7 +16,9 @@ DefaultGroupName={#AppName}
 ; Per-user install needs no administrator rights, which matters when
 ; colleagues cannot install software on a work machine.
 PrivilegesRequired=lowest
-OutputDir=..\dist
+; Separate from dist/, which holds PyInstaller's compiled folder. Keeping
+; them apart is what lets the workflow publish just the installer.
+OutputDir=..\installer
 OutputBaseFilename=QSL-Sender-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes

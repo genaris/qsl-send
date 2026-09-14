@@ -26,3 +26,6 @@ QSL_*.jpg
 
 # Windows build environment (packaging/build-windows.bat)
 .build-venv/
+
+# Windows installer output (packaging/installer.iss)
+installer/

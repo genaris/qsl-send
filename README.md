@@ -584,6 +584,24 @@ git tag v0.1.0 && git push origin v0.1.0
 Tagged builds attach `QSL-Sender-Setup-0.1.0.exe` to a GitHub Release, so
 colleagues get a download link rather than a zip by e-mail.
 
+### What the build produces
+
+```
+dist/QSL Sender/               the compiled application (PyInstaller)
+installer/QSL-Sender-Setup-0.1.0.exe   what you give colleagues
+```
+
+They are kept in separate folders on purpose. Inno Setup used to write the
+installer into `dist/`, so the uploaded artifact contained both the setup .exe
+*and* a folder holding another .exe — which looks duplicated and leaves a
+colleague unsure which one to run.
+
+The workflow now uploads only `installer/QSL-Sender-Setup-*.exe`. That single
+file is the whole delivery: it contains the compiled folder inside it.
+
+`dist/` is still useful locally — run `dist\QSL Sender\QSL Sender.exe`
+directly to test a build without installing it.
+
 ### Notes on the packaging choices
 
 - **One-folder, not one-file.** A single .exe unpacks itself to a temp folder

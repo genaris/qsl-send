@@ -20,7 +20,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller Pillow PyYAML requests pytest
+          pip install pyinstaller pytest
+          # Install the project itself, so qsl_send is a real importable
+          # package rather than just a folder in the checkout.
+          pip install .
 
       - name: Run tests
         run: pytest tests/ -q
@@ -33,14 +36,18 @@ jobs:
           iscc packaging\installer.iss
         shell: cmd
 
-      - name: Upload the built application
+      # Only the installer. dist/ also holds PyInstaller's compiled folder,
+      # and shipping both made the download look duplicated: a colleague saw
+      # a setup .exe next to a folder containing another .exe.
+      - name: Upload the installer
         uses: actions/upload-artifact@v4
         with:
-          name: QSL-Sender-windows
-          path: dist/
+          name: QSL-Sender-installer
+          path: installer/QSL-Sender-Setup-*.exe
+          if-no-files-found: error
 
       - name: Attach the installer to the release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/QSL-Sender-Setup-*.exe
+          files: installer/QSL-Sender-Setup-*.exe

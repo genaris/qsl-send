@@ -10,7 +10,9 @@ call .build-venv\Scripts\activate.bat || goto :err
 
 echo === Installing dependencies ===
 python -m pip install --upgrade pip >nul
-python -m pip install pyinstaller Pillow PyYAML requests || goto :err
+python -m pip install pyinstaller || goto :err
+REM Install the project itself, so qsl_send is importable by PyInstaller.
+python -m pip install . || goto :err
 
 echo === Building the application ===
 pyinstaller packaging\qsl-send.spec --noconfirm --distpath dist --workpath build || goto :err
@@ -21,6 +23,7 @@ echo Run "dist\QSL Sender\QSL Sender.exe" to test it.
 echo.
 echo To build the installer as well, install Inno Setup and run:
 echo     iscc packaging\installer.iss
+echo The installer is written to:  installer\QSL-Sender-Setup-*.exe
 goto :eof
 
 :err
