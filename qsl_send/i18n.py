@@ -108,6 +108,10 @@ _ES: dict[str, str] = {
         "Para Gmail es una contraseña de aplicación de 16 caracteres, "
         "no tu contraseña habitual.",
     "by {callsign}": "por {callsign}",
+    "Created a settings file at {path}":
+        "Se creó un archivo de configuración en {path}",
+    "Could not create a settings file at {path}.":
+        "No se pudo crear un archivo de configuración en {path}.",
     # output-folder confirmation
     "Check the folder": "Revisá la carpeta",
     "Continue anyway?": "¿Continuar igual?",

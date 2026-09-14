@@ -31,10 +31,45 @@ jobs:
       - name: Build the application
         run: pyinstaller packaging/qsl-send.spec --noconfirm
 
+      # --- Code signing (inactive until a certificate is configured) ---
+      #
+      # Unsigned executables are blocked outright by Smart App Control on a
+      # clean Windows 11, with "An Application Control Policy has blocked this
+      # file" and no way for the user to continue. Signing is the only fix that
+      # does not require every colleague to lower their own protection.
+      #
+      # To enable: add the WINDOWS_CERT_BASE64 and WINDOWS_CERT_PASSWORD
+      # repository secrets, then uncomment the three steps below.
+      #
+      # - name: Decode the signing certificate
+      #   run: |
+      #     [IO.File]::WriteAllBytes(
+      #       "$env:RUNNER_TEMP\cert.pfx",
+      #       [Convert]::FromBase64String("${{ secrets.WINDOWS_CERT_BASE64 }}"))
+      #   shell: pwsh
+      #
+      # - name: Sign the application
+      #   # Signed before Inno Setup packages it: Windows checks the installer
+      #   # and the application it installs separately, so both need signing.
+      #   run: |
+      #     & "${env:ProgramFiles(x86)}\Windows Kits\10\bin\x64\signtool.exe" sign `
+      #       /f "$env:RUNNER_TEMP\cert.pfx" /p "${{ secrets.WINDOWS_CERT_PASSWORD }}" `
+      #       /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+      #       "dist\QSL Sender\QSL Sender.exe"
+      #   shell: pwsh
+
       - name: Build the installer
         run: |
           iscc packaging\installer.iss
         shell: cmd
+
+      # - name: Sign the installer
+      #   run: |
+      #     & "${env:ProgramFiles(x86)}\Windows Kits\10\bin\x64\signtool.exe" sign `
+      #       /f "$env:RUNNER_TEMP\cert.pfx" /p "${{ secrets.WINDOWS_CERT_PASSWORD }}" `
+      #       /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+      #       (Get-ChildItem installer\QSL-Sender-Setup-*.exe).FullName
+      #   shell: pwsh
 
       # Only the installer. dist/ also holds PyInstaller's compiled folder,
       # and shipping both made the download look duplicated: a colleague saw

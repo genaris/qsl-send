@@ -602,6 +602,87 @@ file is the whole delivery: it contains the compiled folder inside it.
 `dist/` is still useful locally — run `dist\QSL Sender\QSL Sender.exe`
 directly to test a build without installing it.
 
+### Where an installed application keeps its settings
+
+Run from a checkout, `qsl-send.yaml` sits next to the code. An installed
+application has no such luxury: it is launched from the Start menu, so the
+working directory is somewhere arbitrary, and its own folder under Program
+Files is read-only for a normal user.
+
+So the settings live per user:
+
+| Platform | Location |
+| --- | --- |
+| Windows | `%APPDATA%\qsl-send\qsl-send.yaml` |
+| macOS | `~/Library/Application Support/qsl-send/qsl-send.yaml` |
+| Linux | `~/.config/qsl-send/qsl-send.yaml` |
+
+On first run the file does not exist, so it is created from the example shipped
+inside the application — real placeholder values the settings window can open
+straight away. Cards default to `Documents\QSL Cards`, somewhere a normal user
+can actually write.
+
+A `qsl-send.yaml` in the current directory still wins, so running from a
+checkout behaves exactly as before.
+
+### If Windows blocks the application
+
+A freshly installed Windows 11 may refuse to run the application at all:
+
+```
+CreateProcess failed; code 4551
+An Application Control Policy has blocked this file
+```
+
+This is not a fault in the application. Windows is refusing to run an
+executable that carries **no code-signing signature**. It is stricter than the
+SmartScreen warning: SmartScreen offers "More info → Run anyway", whereas this
+blocks outright.
+
+The usual cause is **Smart App Control**, which is on by default on clean
+Windows 11 installations and only permits signed or well-known software. Check
+it at Windows Security → App & browser control → Smart App Control.
+
+There are two ways out, and they are not equivalent.
+
+**Sign the application** — the real fix. A code-signing certificate (roughly
+USD 100–400/year, with identity validation) makes the block and the SmartScreen
+warning disappear for everyone, permanently. The packaging is ready for it: see
+below.
+
+**Turn Smart App Control off** — works immediately and costs nothing, but:
+
+- it is **irreversible**: Windows cannot re-enable it without reinstalling the
+  operating system;
+- it only helps on that one PC, so every colleague would have to lower their
+  own protection to run your application;
+- it removes the protection for *everything* they download afterwards, not just
+  this application.
+
+Reasonable for testing on your own machine. A poor thing to ask of colleagues.
+To do it: Windows Security → App & browser control → Smart App Control →
+Off. Confirm the warning, then reinstall the application.
+
+### Signing the application (when you have a certificate)
+
+The packaging is prepared for it; nothing is signed today because no
+certificate is configured.
+
+With a `.pfx` certificate, add these two repository secrets in GitHub
+(Settings → Secrets and variables → Actions):
+
+| Secret | Contents |
+| --- | --- |
+| `WINDOWS_CERT_BASE64` | the .pfx file, base64-encoded |
+| `WINDOWS_CERT_PASSWORD` | its password |
+
+Then uncomment the signing steps in `.github/workflows/build-windows.yml`.
+They sign the compiled `.exe` before Inno Setup packages it, and the installer
+afterwards — both are needed, since Windows checks each one separately.
+
+Building locally, pass the certificate to Inno Setup with
+`iscc /S"signtool=..." packaging\installer.iss`.
+
 ### Notes on the packaging choices
 
 - **One-folder, not one-file.** A single .exe unpacks itself to a temp folder

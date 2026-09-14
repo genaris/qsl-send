@@ -36,6 +36,7 @@ except ImportError as exc:  # pragma: no cover - depends on the Python build
 
 from qsl_send.config import ConfigError, load_config
 from qsl_send.i18n import SUPPORTED, get_language, set_language, t
+from qsl_send.userdata import ensure_user_config, resolve_config
 from qsl_send.settings_io import (
     SettingsWriteError,
     read_block_scalar,
@@ -209,9 +210,24 @@ class App:
             a = cfg.resolve(cfg.adif)
             if a:
                 self.adif.set(str(a))
+        # A relative "output" resolves against the settings file. For an
+        # installed application that file lives in AppData (or Application
+        # Support), so the cards would land somewhere nobody would think to
+        # look. Offer Documents instead — unless the folder already exists,
+        # which means it is genuinely in use.
+        from qsl_send.userdata import default_output_dir, user_config_dir
+
         out = cfg.resolve(cfg.output_dir)
-        if out:
-            self.outdir.set(str(out))
+        if out is not None:
+            out = Path(out)
+            inside_settings_dir = (
+                cfg.path is not None
+                and not Path(cfg.output_dir).is_absolute()
+                and cfg.path.parent == user_config_dir()
+            )
+            if inside_settings_dir and not out.exists():
+                out = default_output_dir()
+        self.outdir.set(str(out or default_output_dir()))
         if cfg.render.fields:
             self.fields_label.configure(
                 text=t("{count} fields configured.",
@@ -230,15 +246,28 @@ class App:
         self.sum_vars["my_callsign"].set(cfg.my_callsign or "—")
         self.sum_vars["from_address"].set(cfg.smtp.from_address or "—")
         self.sum_vars["language"].set(lang)
-        out = cfg.resolve(cfg.output_dir)
-        self.sum_vars["output_dir"].set(Path(out).name if out else "—")
+        # Read the field the window actually uses, not cfg.output_dir: the two
+        # differ when a relative "output" was redirected away from the settings
+        # directory, and showing the stale one made the bar disagree with where
+        # the cards really go.
+        chosen = self.outdir.get().strip()
+        self.sum_vars["output_dir"].set(Path(chosen).name if chosen else "—")
 
     def on_settings(self) -> None:
+        # Never refuse to open: if there is no settings file yet, make one from
+        # the bundled example. Telling someone there is "nothing to edit" is a
+        # dead end when editing is exactly what they are trying to do.
         if not self.config_path:
-            messagebox.showinfo(
-                t(APP_TITLE),
-                t("No settings file was found, so there is nothing to edit."))
-            return
+            created = ensure_user_config()
+            if not created.is_file():
+                messagebox.showerror(
+                    t(APP_TITLE),
+                    t("Could not create a settings file at {path}.",
+                      path=created.parent))
+                return
+            self.config_path = created
+            self.log(t("Created a settings file at {path}", path=created))
+            self._load_config_defaults()
         SettingsDialog(self.root, self)
 
     def log(self, line: str) -> None:
@@ -297,6 +326,11 @@ class App:
         p = filedialog.askdirectory(title=t("Where should the cards be saved?"))
         if p:
             self.outdir.set(p)
+            # The summary bar mirrors this field, so it has to follow a manual
+            # choice too — otherwise it keeps showing the previous folder while
+            # the cards go somewhere else.
+            if hasattr(self, "sum_vars"):
+                self.sum_vars["output_dir"].set(Path(p).name)
 
     # --------------------------------------------------------------- actions
 
@@ -434,10 +468,9 @@ class App:
     def on_fix_contacts(self) -> None:
         """Open the address book, ready to add the callsigns that are lacking."""
         if not self.config_path:
-            messagebox.showinfo(
-                t(APP_TITLE),
-                t("No settings file was found, so there is nothing to edit."))
-            return
+            self.on_settings()
+            if not self.config_path:
+                return
         SettingsDialog(self.root, self, open_tab="contacts",
                        prefill=list(getattr(self, "_missing_calls", [])))
 
@@ -981,13 +1014,11 @@ def _open_file(path: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    config_path = Path(argv[0]) if argv else None
-    if config_path is None:
-        for name in ("qsl-send.yaml", "qsl-send.yml"):
-            p = Path.cwd() / name
-            if p.is_file():
-                config_path = p
-                break
+    # An installed application is launched from the Start menu, so the working
+    # directory is not where it lives. resolve_config() falls back to a
+    # per-user file, creating it on first run, so the window always has real
+    # settings to show and Settings… always has something to edit.
+    config_path = resolve_config(argv[0] if argv else None)
     # Language comes from the config if it names one, otherwise from the OS.
     language = None
     if config_path and Path(config_path).is_file():

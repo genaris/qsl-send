@@ -31,6 +31,10 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Files]
 Source: "..\dist\QSL Sender\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+; Beside the executable as well as inside _internal, so the application can
+; find it to seed a new user's settings on first run.
+Source: "..\qsl-send.example.yaml"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\template.jpg"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
