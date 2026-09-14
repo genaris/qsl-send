@@ -35,6 +35,7 @@ except ImportError as exc:  # pragma: no cover - depends on the Python build
     ) from exc
 
 from qsl_send.config import ConfigError, load_config
+from qsl_send.i18n import get_language, set_language, t
 from qsl_send.contacts import ContactsError, load_contacts
 
 APP_TITLE = "QSL Sender"
@@ -72,14 +73,14 @@ class App:
         self.worker: threading.Thread | None = None
         self.summary = None  # last generate result
 
-        root.title(APP_TITLE)
+        root.title(t(APP_TITLE))
         root.geometry("760x620")
         root.minsize(680, 560)
 
         self.template = tk.StringVar()
         self.adif = tk.StringVar()
         self.outdir = tk.StringVar()
-        self.status = tk.StringVar(value="Choose a card design and a log file.")
+        self.status = tk.StringVar(value=t("Choose a card design and a log file."))
 
         self._build()
         self._load_config_defaults()
@@ -93,46 +94,46 @@ class App:
         frm.pack(fill="both", expand=True)
 
         # --- inputs ---
-        box = ttk.LabelFrame(frm, text="1. Files")
+        box = ttk.LabelFrame(frm, text=t("1. Files"))
         box.pack(fill="x", **pad)
-        self._file_row(box, "Card design", self.template, self._pick_template,
+        self._file_row(box, t("Card design"), self.template, self._pick_template,
                        [("Images", "*.jpg *.jpeg *.png"), ("All files", "*.*")])
-        self._file_row(box, "Log file (ADIF)", self.adif, self._pick_adif,
+        self._file_row(box, t("Log file (ADIF)"), self.adif, self._pick_adif,
                        [("ADIF logs", "*.adi *.adif"), ("All files", "*.*")])
-        self._file_row(box, "Save cards to", self.outdir, self._pick_outdir, None)
+        self._file_row(box, t("Save cards to"), self.outdir, self._pick_outdir, None)
 
         # --- fields ---
-        box2 = ttk.LabelFrame(frm, text="2. Card layout")
+        box2 = ttk.LabelFrame(frm, text=t("2. Card layout"))
         box2.pack(fill="x", **pad)
         row = ttk.Frame(box2)
         row.pack(fill="x", padx=8, pady=6)
-        self.fields_label = ttk.Label(row, text="Fields not checked yet.")
+        self.fields_label = ttk.Label(row, text=t("Fields not checked yet."))
         self.fields_label.pack(side="left")
-        ttk.Button(row, text="Find fields automatically",
+        ttk.Button(row, text=t("Find fields automatically"),
                    command=self.on_detect).pack(side="right", padx=4)
-        ttk.Button(row, text="Show me…", command=self.on_preview_fields).pack(
+        ttk.Button(row, text=t("Show me…"), command=self.on_preview_fields).pack(
             side="right", padx=4)
 
         # --- actions ---
-        box3 = ttk.LabelFrame(frm, text="3. Make and send the cards")
+        box3 = ttk.LabelFrame(frm, text=t("3. Make and send the cards"))
         box3.pack(fill="x", **pad)
         row2 = ttk.Frame(box3)
         row2.pack(fill="x", padx=8, pady=6)
-        self.btn_generate = ttk.Button(row2, text="Make the cards",
+        self.btn_generate = ttk.Button(row2, text=t("Make the cards"),
                                        command=self.on_generate)
         self.btn_generate.pack(side="left")
-        self.btn_review = ttk.Button(row2, text="Review who gets one…",
+        self.btn_review = ttk.Button(row2, text=t("Review who gets one…"),
                                      command=self.on_review, state="disabled")
         self.btn_review.pack(side="left", padx=6)
-        self.btn_test = ttk.Button(row2, text="Send a test to myself",
+        self.btn_test = ttk.Button(row2, text=t("Send a test to myself"),
                                    command=self.on_send_test, state="disabled")
         self.btn_test.pack(side="left", padx=6)
-        self.btn_send = ttk.Button(row2, text="Send the e-mails",
+        self.btn_send = ttk.Button(row2, text=t("Send the e-mails"),
                                    command=self.on_send, state="disabled")
         self.btn_send.pack(side="right")
 
         # --- log ---
-        box4 = ttk.LabelFrame(frm, text="What happened")
+        box4 = ttk.LabelFrame(frm, text=t("What happened"))
         box4.pack(fill="both", expand=True, **pad)
         self.text = tk.Text(box4, height=12, wrap="word", state="disabled")
         scroll = ttk.Scrollbar(box4, command=self.text.yview)
@@ -151,7 +152,7 @@ class App:
         row.pack(fill="x", padx=8, pady=4)
         ttk.Label(row, text=label, width=16).pack(side="left")
         ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True)
-        ttk.Button(row, text="Choose…", command=command).pack(side="left", padx=6)
+        ttk.Button(row, text=t("Choose…"), command=command).pack(side="left", padx=6)
 
     # ------------------------------------------------------------ behaviour
 
@@ -159,13 +160,14 @@ class App:
         try:
             cfg = load_config(self.config_path)
         except ConfigError as exc:
-            self.log(f"Could not read the settings file: {exc}")
+            self.log(t("Could not read the settings file: {error}", error=exc))
             return
         self.cfg = cfg
         if cfg.template:
-            t = cfg.resolve(cfg.template)
-            if t:
-                self.template.set(str(t))
+            # Not named `t`: that shadows the translator imported above.
+            template_path = cfg.resolve(cfg.template)
+            if template_path:
+                self.template.set(str(template_path))
         if cfg.adif:
             a = cfg.resolve(cfg.adif)
             if a:
@@ -175,7 +177,8 @@ class App:
             self.outdir.set(str(out))
         if cfg.render.fields:
             self.fields_label.configure(
-                text=f"{len(cfg.render.fields)} fields configured.")
+                text=t("{count} fields configured.",
+                       count=len(cfg.render.fields)))
 
     def log(self, line: str) -> None:
         self.console.write(line)
@@ -196,16 +199,16 @@ class App:
     def _run(self, fn: Callable[[], None]) -> None:
         """Run `fn` on a worker thread, keeping the window responsive."""
         if self.worker and self.worker.is_alive():
-            messagebox.showinfo(APP_TITLE, "Still working — please wait.")
+            messagebox.showinfo(t(APP_TITLE), t("Still working — please wait."))
             return
 
         def wrapped():
             try:
                 fn()
             except Exception as exc:  # surface, never crash the window
-                self.log(f"\nSomething went wrong: {exc}")
+                self.log(t("Something went wrong: {error}", error=exc))
                 self.log(traceback.format_exc())
-                self.status.set("Something went wrong — see the log below.")
+                self.status.set(t("Something went wrong — see the log below."))
             finally:
                 self.root.after(0, lambda: self._busy(False))
 
@@ -217,20 +220,20 @@ class App:
 
     def _pick_template(self):
         p = filedialog.askopenfilename(
-            title="Choose your QSL card design",
+            title=t("Choose your QSL card design"),
             filetypes=[("Images", "*.jpg *.jpeg *.png"), ("All files", "*.*")])
         if p:
             self.template.set(p)
 
     def _pick_adif(self):
         p = filedialog.askopenfilename(
-            title="Choose your log file",
+            title=t("Choose your log file"),
             filetypes=[("ADIF logs", "*.adi *.adif"), ("All files", "*.*")])
         if p:
             self.adif.set(p)
 
     def _pick_outdir(self):
-        p = filedialog.askdirectory(title="Where should the cards be saved?")
+        p = filedialog.askdirectory(title=t("Where should the cards be saved?"))
         if p:
             self.outdir.set(p)
 
@@ -239,35 +242,37 @@ class App:
     def on_detect(self):
         template = self.template.get().strip()
         if not template:
-            messagebox.showwarning(APP_TITLE, "Choose a card design first.")
+            messagebox.showwarning(t(APP_TITLE), t("Choose a card design first."))
             return
 
         def work():
             from qsl_send.detect import detect_boxes, name_boxes
-            self.status.set("Looking for the fields on the card…")
-            self.log(f"Looking at {Path(template).name} …")
+            self.status.set(t("Looking for the fields on the card…"))
+            self.log(t("Looking at {name} …", name=Path(template).name))
             d = detect_boxes(template)
             if not d.boxes:
-                self.log("No fields found. The boxes may not be a flat colour.")
-                self.status.set("No fields found.")
+                self.log(t("No fields found. The boxes may not be a flat colour."))
+                self.status.set(t("No fields found."))
                 return
             named = name_boxes(d)
-            self.log(f"Found {len(d.boxes)} fields in {d.rows} row(s):")
+            self.log(t("Found {count} fields in {rows} row(s):",
+                       count=len(d.boxes), rows=d.rows))
             for b, n, _v in named:
                 self.log(f"    {n:<9} at {b.box}")
-            self.log("Names are guessed from left-to-right order — "
-                     "use 'Show me…' to check them on the card.")
+            self.log(t("Names are guessed from left-to-right order — "
+                       "use 'Show me…' to check them on the card."))
             self.detected = (d, named)
             self.root.after(0, lambda: self.fields_label.configure(
-                text=f"{len(d.boxes)} fields found automatically."))
-            self.status.set(f"Found {len(d.boxes)} fields.")
+                text=t("{count} fields found automatically.",
+                       count=len(d.boxes))))
+            self.status.set(t("Found {count} fields.", count=len(d.boxes)))
 
         self._run(work)
 
     def on_preview_fields(self):
         template = self.template.get().strip()
         if not template:
-            messagebox.showwarning(APP_TITLE, "Choose a card design first.")
+            messagebox.showwarning(t(APP_TITLE), t("Choose a card design first."))
             return
 
         def work():
@@ -275,7 +280,7 @@ class App:
             from PIL import Image, ImageDraw
             d = detect_boxes(template)
             if not d.boxes:
-                self.log("Nothing to show — no fields were found.")
+                self.log(t("Nothing to show — no fields were found."))
                 return
             img = Image.open(template).convert("RGB")
             draw = ImageDraw.Draw(img)
@@ -287,7 +292,7 @@ class App:
             out = Path(self.outdir.get() or ".") / "field-check.png"
             out.parent.mkdir(parents=True, exist_ok=True)
             img.save(out)
-            self.log(f"Saved a marked-up copy to {out}")
+            self.log(t("Saved a marked-up copy to {path}", path=out))
             _open_file(out)
 
         self._run(work)
@@ -298,7 +303,7 @@ class App:
         outdir = self.outdir.get().strip()
         if not (adif and template and outdir):
             messagebox.showwarning(
-                APP_TITLE, "Choose a card design, a log file and a folder first.")
+                t(APP_TITLE), t("Choose a card design, a log file and a folder first."))
             return
 
         def work():
@@ -315,9 +320,9 @@ class App:
                         for w in warns:
                             self.log(f"! {w}")
                     except ContactsError as exc:
-                        self.log(f"! Address book problem: {exc}")
+                        self.log(t("! Address book problem: {error}", error=exc))
 
-            self.status.set("Making the cards…")
+            self.status.set(t("Making the cards…"))
             summary = generate_cards(
                 cfg,
                 adif_path=Path(adif),
@@ -329,10 +334,12 @@ class App:
             write_manifest(summary, Path(outdir))
             self.log(format_summary(summary, Path(outdir)))
             self.summary = summary
-            self.status.set(
-                f"{summary.cards_written} cards made · "
-                f"{summary.with_email} ready to e-mail · "
-                f"{summary.without_email} with no address")
+            self.status.set(t(
+                "{cards} cards made · {ready} ready to e-mail · "
+                "{missing} with no address",
+                cards=summary.cards_written,
+                ready=summary.with_email,
+                missing=summary.without_email))
 
         self._run(work)
 
@@ -340,20 +347,21 @@ class App:
         outdir = Path(self.outdir.get().strip() or ".")
         manifest = outdir / "manifest.csv"
         if not manifest.is_file():
-            messagebox.showinfo(APP_TITLE, "Make the cards first.")
+            messagebox.showinfo(t(APP_TITLE), t("Make the cards first."))
             return
         _open_file(manifest)
-        self.log(f"Opened {manifest} — check the addresses before sending.")
+        self.log(t("Opened {path} — check the addresses before sending.",
+                   path=manifest))
 
     def on_send_test(self):
-        addr = _ask_string(self.root, "Send a test",
-                           "Send one test card to which address?")
+        addr = _ask_string(self.root, t("Send a test"),
+                           t("Send one test card to which address?"))
         if not addr:
             return
 
         def work():
             self._deliver(to_override=addr, limit=1, confirm=True)
-            self.log("Test sent. Nobody was marked as having received a card.")
+            self.log(t("Test sent. Nobody was marked as having received a card."))
 
         self._run(work)
 
@@ -370,13 +378,13 @@ class App:
 
     def _confirm_and_send(self, count: int, outdir: Path) -> None:
         ok = messagebox.askyesno(
-            "Send the e-mails",
+            t("Send the e-mails"),
             f"This will e-mail {count} operator(s) — for real.\n\n"
             "Anyone who already received their card will be skipped.\n\n"
             "Send now?",
             default="no", icon="warning")
         if not ok:
-            self.log("Cancelled — nothing was sent.")
+            self.log(t("Cancelled — nothing was sent."))
             return
         self._run(lambda: self._deliver("", None, confirm=True))
 
@@ -391,20 +399,22 @@ class App:
                         sent_log=sent_log)
         self.log(format_preview(cfg, q, outdir))
         if not q.items:
-            self.log("Nobody left to send to.")
+            self.log(t("Nobody left to send to."))
             return 0
         if not confirm:
             return len(q.items)
 
-        self.status.set(f"Sending {len(q.items)} e-mail(s)…")
+        self.status.set(t("Sending {count} e-mail(s)…", count=len(q.items)))
         outcomes = deliver(
             cfg.smtp, q.items,
             attachment_template=cfg.smtp.attachment_name,
             sent_log=None if q.is_test else sent_log,
             delay=cfg.smtp.delay, progress=self.log)
         sent = sum(1 for o in outcomes if o.status == "sent")
-        self.log(f"\nSent {sent} of {len(outcomes)}.")
-        self.status.set(f"Sent {sent} of {len(outcomes)}.")
+        self.log("\n" + t("Sent {sent} of {total}.",
+                          sent=sent, total=len(outcomes)))
+        self.status.set(t("Sent {sent} of {total}.",
+                          sent=sent, total=len(outcomes)))
         return sent
 
 
@@ -437,6 +447,15 @@ def main(argv: list[str] | None = None) -> int:
             if p.is_file():
                 config_path = p
                 break
+    # Language comes from the config if it names one, otherwise from the OS.
+    language = None
+    if config_path and Path(config_path).is_file():
+        try:
+            language = load_config(Path(config_path)).language or None
+        except ConfigError:
+            language = None
+    set_language(language)
+
     root = tk.Tk()
     App(root, config_path)
     root.mainloop()

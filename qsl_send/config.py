@@ -160,6 +160,7 @@ class Config:
     adif: str = ""
     output_dir: str = "output"
     contacts_file: str = ""  # local address-book overrides; see contacts.py
+    language: str = ""  # window language: "en", "es", or "" to follow the OS
     my_callsign: str = ""
     date_format: str = "%d/%m/%Y"
     time_format: str = "%H:%M"
@@ -276,6 +277,7 @@ def load_config(path: str | Path | None) -> Config:
         "adif",
         "output_dir",
         "contacts_file",
+        "language",
         "my_callsign",
         "date_format",
         "time_format",

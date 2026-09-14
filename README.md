@@ -425,6 +425,42 @@ interface rather than by remembering a flag:
 Running the packaged app with arguments still gives the full command line, so
 nothing is lost for people who prefer it.
 
+### Language
+
+The window is available in **English and Spanish**, and picks the language from
+the computer itself — a colleague whose Windows is in Spanish gets a Spanish
+window with nothing to configure.
+
+Detection asks each platform directly, because Python's own
+`locale.getdefaultlocale()` is unreliable for desktop apps (on macOS it reports
+`C`/`UTF-8` no matter what language the user has chosen):
+
+| Platform | Source |
+| --- | --- |
+| Windows | `GetUserDefaultUILanguage` — the language Windows' menus use |
+| macOS | `AppleLanguages` from the global preferences |
+| Linux | `LC_ALL`, `LC_MESSAGES`, `LANG`, `LANGUAGE` |
+
+To force a language, either set it in the config:
+
+```yaml
+language: es      # "en", "es", or unset to follow the computer
+```
+
+or set an environment variable, which overrides everything:
+
+```bash
+QSL_SEND_LANG=es .venv-gui/bin/qsl-send-gui
+```
+
+Only the window is translated. The command line, this README and the config
+file stay in English, since those are read by whoever sets the tool up rather
+than by the people using the window.
+
+Adding another language means adding one dictionary to `qsl_send/i18n.py`;
+the keys are the English strings, so anything not yet translated simply appears
+in English rather than breaking.
+
 ### Building it
 
 Two supported routes; both produce the same thing.
