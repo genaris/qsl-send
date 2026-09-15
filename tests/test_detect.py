@@ -220,3 +220,93 @@ def test_detected_boxes_are_usable_as_config_field_boxes(tmp_path):
     out = tmp_path / "card.jpg"
     renderer.save(card, out)
     assert out.is_file() and out.stat().st_size > 0
+
+
+def _log(path: Path) -> Path:
+    path.write_text(
+        "<eoh>\n<call:5>AA1AA<qso_date:8>20260913<time_on:4>1749<mode:3>SSB"
+        "<freq:5>7.133<rst_sent:2>59<name:3>Ana<email:15>ana@example.com<eor>\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_boxes_are_located_on_the_card_actually_used(tmp_path):
+    """Choosing a template is a request to find *its* boxes.
+
+    Coordinates are pixels of one particular image, so carrying them over to a
+    card of another size only scales them and the text lands off the boxes.
+    """
+    from qsl_send.config import load_config
+    from qsl_send.pipeline import generate_cards
+
+    # A card at a size the configuration knows nothing about.
+    card = _card(tmp_path / "other.jpg", ONE_ROW, size=(1800, 1200))
+
+    cfg = load_config(None)
+    stale = [tuple(f.box) for f in cfg.render.fields]
+    summary = generate_cards(
+        cfg, adif_path=_log(tmp_path / "log.adi"), template_path=card,
+        output_dir=tmp_path / "out", use_qrz=False,
+    )
+
+    assert summary.cards_written == 1
+    assert cfg.render.template_size == (1800, 1200)
+    assert [tuple(f.box) for f in cfg.render.fields] != stale
+    assert not [w for w in summary.warnings if "scaled" in w]
+
+
+def test_field_names_and_values_survive_relocation(tmp_path):
+    """Only the geometry comes from detection; naming stays as configured."""
+    from qsl_send.config import load_config
+    from qsl_send.pipeline import generate_cards
+
+    card = _card(tmp_path / "other.jpg", ONE_ROW, size=(1800, 1200))
+    cfg = load_config(None)
+    names = [f.name for f in cfg.render.fields]
+    values = [f.value for f in cfg.render.fields]
+
+    generate_cards(cfg, adif_path=_log(tmp_path / "log.adi"), template_path=card,
+                   output_dir=tmp_path / "out", use_qrz=False)
+
+    assert [f.name for f in cfg.render.fields] == names
+    assert [f.value for f in cfg.render.fields] == values
+
+
+def test_saved_boxes_are_kept_when_detection_finds_nothing(tmp_path):
+    """Detection is a heuristic, so it needs a fallback rather than a crash."""
+    from PIL import Image
+
+    from qsl_send.config import load_config
+    from qsl_send.pipeline import generate_cards
+
+    flat = tmp_path / "flat.jpg"
+    Image.new("RGB", (1700, 1100), (90, 90, 95)).save(flat, "JPEG")
+
+    cfg = load_config(None)
+    saved = [tuple(f.box) for f in cfg.render.fields]
+    summary = generate_cards(
+        cfg, adif_path=_log(tmp_path / "log.adi"), template_path=flat,
+        output_dir=tmp_path / "out", use_qrz=False,
+    )
+
+    assert summary.cards_written == 1                       # still produces cards
+    assert [tuple(f.box) for f in cfg.render.fields] == saved
+    warning = " ".join(summary.warnings)
+    assert "0 box(es)" in warning or "box(es) instead of" in warning
+    assert "check one card" in warning                      # and says what to do
+
+
+def test_a_matching_template_is_not_re_detected(tmp_path):
+    """No point paying for detection when the boxes already fit the card."""
+    from qsl_send.config import load_config
+    from qsl_send.pipeline import generate_cards
+
+    cfg = load_config(None)
+    card = _card(tmp_path / "same.jpg", ONE_ROW, size=cfg.render.template_size)
+    before = [tuple(f.box) for f in cfg.render.fields]
+
+    generate_cards(cfg, adif_path=_log(tmp_path / "log.adi"), template_path=card,
+                   output_dir=tmp_path / "out", use_qrz=False)
+
+    assert [tuple(f.box) for f in cfg.render.fields] == before

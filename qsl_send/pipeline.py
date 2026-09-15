@@ -149,6 +149,64 @@ def _resolve_contact(
     return name, name_source, email, email_source, note
 
 
+def _fit_fields_to_template(
+    cfg: Config,
+    template_path: Path,
+    summary: "RunSummary",
+    say: Callable[[str], None],
+) -> None:
+    """Locate the field boxes on the card actually being used.
+
+    Box coordinates are pixels of one particular image, so reusing them for a
+    different card only scales them and the text lands off the boxes. Choosing
+    a template is a request to find *its* boxes, so they are located here
+    rather than trusted from the configuration.
+
+    Detection is a heuristic — it looks for flat rectangles of a single colour
+    — so when it cannot find them the configured boxes are kept as a fallback
+    and the run says so, rather than producing obviously broken cards.
+    """
+    from qsl_send.detect import DEFAULT_ORDER, detect_boxes
+
+    try:
+        from PIL import Image
+
+        with Image.open(template_path) as img:
+            actual_size = img.size
+    except Exception:
+        return
+
+    if tuple(actual_size) == tuple(cfg.render.template_size):
+        return  # the configured boxes already belong to this card
+
+    expected = len(cfg.render.fields) or len(DEFAULT_ORDER)
+    try:
+        detection = detect_boxes(template_path)
+    except Exception as exc:
+        detection = None
+        say(f"! Could not inspect {template_path.name}: {exc}")
+
+    if detection is None or len(detection.boxes) != expected:
+        found = 0 if detection is None else len(detection.boxes)
+        summary.warnings.append(
+            f"{template_path.name} is {actual_size[0]}x{actual_size[1]}, but the "
+            f"saved field boxes were measured on {cfg.render.template_size[0]}x"
+            f"{cfg.render.template_size[1]}. Automatic detection found "
+            f"{found} box(es) instead of {expected}, so the saved boxes were "
+            "scaled to fit — check one card before sending."
+        )
+        return
+
+    # Keep each field's configured name and value; take only the geometry.
+    for spec, box in zip(cfg.render.fields, detection.boxes):
+        spec.box = tuple(box.box)  # type: ignore[assignment]
+    cfg.render.template_size = detection.size
+    say(
+        f"Located {len(detection.boxes)} field box(es) on "
+        f"{template_path.name} ({actual_size[0]}x{actual_size[1]})"
+    )
+
+
 def generate_cards(
     cfg: Config,
     *,
@@ -210,13 +268,9 @@ def generate_cards(
                     + ("…" if len(failed) > 10 else "")
                 )
 
+    if render_images:
+        _fit_fields_to_template(cfg, template_path, summary, say)
     renderer = CardRenderer(template_path, cfg.render) if render_images else None
-    if renderer and renderer.scaled:
-        summary.warnings.append(
-            f"Template is {renderer.template.width}x{renderer.template.height}, "
-            f"field boxes were measured on {cfg.render.template_size[0]}x"
-            f"{cfg.render.template_size[1]} — boxes were scaled to fit."
-        )
 
     used_names: set[str] = set()
     for qso in selected:

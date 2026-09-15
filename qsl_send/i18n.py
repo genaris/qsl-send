@@ -112,6 +112,16 @@ _ES: dict[str, str] = {
         "Se creó un archivo de configuración en {path}",
     "Could not create a settings file at {path}.":
         "No se pudo crear un archivo de configuración en {path}.",
+    # re-detecting fields when the card design changes
+    "Card design": "Diseño de tarjeta",
+    "This card is {new}, but the field boxes were measured on {old}.\n\n"
+    "Find the boxes on the new card now?":
+        "Esta tarjeta es {new}, pero los campos se midieron sobre {old}.\n\n"
+        "¿Buscar los campos en la tarjeta nueva ahora?",
+    "Saved the field boxes for this card.":
+        "Se guardaron los campos de esta tarjeta.",
+    "Could not save the field boxes: {error}":
+        "No se pudieron guardar los campos: {error}",
     # credentials check before sending
     "E-mail settings": "Configuración de correo",
     "your own e-mail address": "tu propia dirección de correo",

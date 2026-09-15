@@ -442,3 +442,75 @@ def test_a_windows_path_survives_being_written(tmp_path):
     win = r"C:\Users\Someone\Documents\card.jpg"
     update_settings(p, {"template": win})
     assert yaml.safe_load(p.read_text(encoding="utf-8"))["template"] == win
+
+
+def test_render_fields_and_template_size_are_written_together(tmp_path):
+    """They belong to one another: boxes are pixels of one particular image.
+
+    Saving boxes against a stale template_size leaves every box scaled, which
+    is what put the text off the card after choosing a different design.
+    """
+    import yaml
+
+    from qsl_send.settings_io import update_render_fields
+
+    p = tmp_path / "qsl-send.yaml"
+    p.write_text(
+        "my_callsign: AA1AA\n"
+        "render:\n"
+        "  color: \"#0b2d5c\"\n"
+        "  template_size: [1583, 1061]\n"
+        "  fields:\n"
+        "    - name: fecha\n"
+        "      box: [101, 950, 166, 42]\n"
+        "      value: \"{date}\"\n"
+        "qrz:\n"
+        "  enabled: false\n",
+        encoding="utf-8",
+    )
+    update_render_fields(
+        p, (1607, 1061),
+        [("date", [402, 920, 174, 41], "{date}"),
+         ("qso_with", [586, 921, 173, 41], "{callsign}")],
+    )
+
+    data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    assert data["render"]["template_size"] == [1607, 1061]
+    assert len(data["render"]["fields"]) == 2
+    assert data["render"]["fields"][0]["box"] == [402, 920, 174, 41]
+    # Neighbouring keys and blocks survive.
+    assert data["render"]["color"] == "#0b2d5c"
+    assert data["my_callsign"] == "AA1AA"
+    assert data["qrz"]["enabled"] is False
+
+
+def test_rewriting_render_fields_replaces_the_old_boxes(tmp_path):
+    import yaml
+
+    from qsl_send.settings_io import update_render_fields
+
+    p = tmp_path / "qsl-send.yaml"
+    p.write_text(
+        "render:\n"
+        "  template_size: [1583, 1061]\n"
+        "  fields:\n"
+        "    - name: a\n      box: [1, 2, 3, 4]\n"
+        "    - name: b\n      box: [5, 6, 7, 8]\n"
+        "    - name: c\n      box: [9, 10, 11, 12]\n",
+        encoding="utf-8",
+    )
+    update_render_fields(p, (1607, 1061), [("only", [1, 1, 1, 1], "{date}")])
+
+    data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    assert [f["name"] for f in data["render"]["fields"]] == ["only"]
+    assert "box: [5, 6, 7, 8]" not in p.read_text(encoding="utf-8")
+
+
+def test_a_config_without_template_size_reports_clearly(tmp_path):
+    from qsl_send.settings_io import update_render_fields
+
+    p = tmp_path / "qsl-send.yaml"
+    p.write_text("my_callsign: AA1AA\n", encoding="utf-8")
+    with pytest.raises(SettingsWriteError) as exc:
+        update_render_fields(p, (1607, 1061), [("date", [1, 2, 3, 4], "{date}")])
+    assert "detect-fields" in str(exc.value)

@@ -343,6 +343,82 @@ def update_settings(
     return written
 
 
+def update_render_fields(
+    path: str | Path,
+    template_size: tuple[int, int],
+    fields: list[tuple[str, list[int], str]],
+) -> None:
+    """Rewrite render.template_size and render.fields together.
+
+    These two belong to one another: the boxes are measured in pixels of a
+    particular image, so saving them against a stale size leaves every box
+    scaled and the text landing off the card. They are written in one pass so
+    they cannot drift apart.
+
+    Only this region is touched; comments elsewhere in the file survive.
+    """
+    p = Path(path)
+    original = p.read_text(encoding="utf-8")
+    newline = "\r\n" if "\r\n" in original else "\n"
+    lines = original.splitlines()
+
+    start = None
+    for i, line in enumerate(lines):
+        if line.strip().startswith("template_size:"):
+            start = i
+            break
+    if start is None:
+        raise SettingsWriteError(
+            f"{p} has no render.template_size to update. Run "
+            "'qsl-send detect-fields --write' once, or add the key by hand."
+        )
+
+    indent = " " * (len(lines[start]) - len(lines[start].lstrip()))
+
+    # The region runs to the end of the fields list that follows.
+    end = start + 1
+    seen_fields = False
+    while end < len(lines):
+        stripped = lines[end].strip()
+        if not stripped or stripped.startswith("#"):
+            end += 1
+            continue
+        current_indent = len(lines[end]) - len(lines[end].lstrip())
+        if stripped.startswith("fields:") and current_indent == len(indent):
+            seen_fields = True
+            end += 1
+            continue
+        if seen_fields and current_indent > len(indent):
+            end += 1
+            continue
+        if seen_fields:
+            break
+        if current_indent <= len(indent):
+            break
+        end += 1
+
+    block = [f"{indent}template_size: [{template_size[0]}, {template_size[1]}]",
+             f"{indent}fields:"]
+    for name, box, value in fields:
+        block.append(f"{indent}  - name: {name}")
+        block.append(f"{indent}    box: [{', '.join(str(v) for v in box)}]")
+        if value:
+            block.append(f'{indent}    value: "{value}"')
+
+    updated = lines[:start] + block + lines[end:]
+    text = newline.join(updated)
+    if original.endswith(("\n", "\r\n")):
+        text += newline
+
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(p)
+    except OSError as exc:
+        tmp.unlink(missing_ok=True)
+        raise SettingsWriteError(f"Could not save {p}: {exc}") from exc
+
+
 def update_env_file(path: str | Path, changes: dict[str, str]) -> list[str]:
     """Set `KEY=value` entries in a .env file, creating it if absent."""
     p = Path(path)

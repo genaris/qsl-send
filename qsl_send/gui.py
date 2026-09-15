@@ -323,6 +323,18 @@ class App:
             filetypes=[("Images", "*.jpg *.jpeg *.png"), ("All files", "*.*")])
         if p:
             self.template.set(p)
+            self._offer_redetect(Path(p))
+
+    def _offer_redetect(self, template: Path) -> None:
+        """Find the boxes on a newly chosen card, without asking.
+
+        Choosing a card design *is* the request to find its boxes — that is
+        what the feature is for. Asking first treated detection as an unusual
+        step, when it is the normal one; and saved coordinates belong to one
+        particular image, so carrying them over to another card was never
+        right.
+        """
+        self.on_detect(and_save=True)
 
     def _pick_adif(self):
         p = filedialog.askopenfilename(
@@ -343,7 +355,13 @@ class App:
 
     # --------------------------------------------------------------- actions
 
-    def on_detect(self):
+    def on_detect(self, and_save: bool = False):
+        """Find the field boxes on the current card design.
+
+        With `and_save`, the boxes and the card's pixel size are written to the
+        configuration. Without it they are only reported, which is what the
+        button on its own does.
+        """
         template = self.template.get().strip()
         if not template:
             messagebox.showwarning(t(APP_TITLE), t("Choose a card design first."))
@@ -371,7 +389,29 @@ class App:
                        count=len(d.boxes))))
             self.status.set(t("Found {count} fields.", count=len(d.boxes)))
 
+            if and_save and self.config_path:
+                # Write the boxes AND the card's pixel size together. Saving
+                # boxes without the size would leave them being scaled from a
+                # stale reference, which is the very problem this fixes.
+                try:
+                    self._write_detected_fields(d, named)
+                except Exception as exc:
+                    self.log(t("Could not save the field boxes: {error}", error=exc))
+                    return
+                self.log(t("Saved the field boxes for this card."))
+                self._load_config_defaults(keep_files=True)
+
         self._run(work)
+
+    def _write_detected_fields(self, detection, named) -> None:
+        """Replace render.template_size and render.fields in the config."""
+        from qsl_send.settings_io import update_render_fields
+
+        update_render_fields(
+            self.config_path,
+            detection.size,
+            [(name, box.box, value) for box, name, value in named],
+        )
 
     def on_preview_fields(self):
         template = self.template.get().strip()
