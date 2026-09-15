@@ -3,7 +3,7 @@
 ; Expects PyInstaller output in dist\QSL Sender\
 
 #define AppName "QSL Sender"
-#define AppVersion "0.1.0"  ; x-release-please-version
+#define AppVersion "0.2.0"  ; x-release-please-version
 #define AppPublisher "LU2AOG"
 #define AppExe "QSL Sender.exe"
 
