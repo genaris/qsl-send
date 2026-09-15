@@ -557,11 +557,13 @@ class App:
         self._run(work_preview)
 
     def _confirm_and_send(self, count: int, outdir: Path) -> None:
+        # Built with t(): the f-string here bypassed the catalogue entirely,
+        # so the Spanish text existed and was never shown.
         ok = messagebox.askyesno(
             t("Send the e-mails"),
-            f"This will e-mail {count} operator(s) — for real.\n\n"
-            "Anyone who already received their card will be skipped.\n\n"
-            "Send now?",
+            t("This will e-mail {count} operator(s) — for real.\n\n"
+              "Anyone who already received their card will be skipped.\n\n"
+              "Send now?", count=count),
             default="no", icon="warning")
         if not ok:
             self.log(t("Cancelled — nothing was sent."))

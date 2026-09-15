@@ -114,14 +114,75 @@ _ES: dict[str, str] = {
         "No se pudo crear un archivo de configuración en {path}.",
     # re-detecting fields when the card design changes
     "Card design": "Diseño de tarjeta",
-    "This card is {new}, but the field boxes were measured on {old}.\n\n"
-    "Find the boxes on the new card now?":
-        "Esta tarjeta es {new}, pero los campos se midieron sobre {old}.\n\n"
-        "¿Buscar los campos en la tarjeta nueva ahora?",
     "Saved the field boxes for this card.":
         "Se guardaron los campos de esta tarjeta.",
     "Could not save the field boxes: {error}":
         "No se pudieron guardar los campos: {error}",
+    # progress messages from the pipeline (shown in the window's log)
+    "Read {count} QSO(s) from {name}": "Se leyeron {count} QSO de {name}",
+    "Looking up {count} callsign(s) on QRZ.com…":
+        "Consultando {count} indicativo(s) en QRZ.com…",
+    "- {callsign}: no e-mail, card skipped":
+        "- {callsign}: sin correo, tarjeta omitida",
+    "Located {count} field box(es) on {name} ({size})":
+        "Se ubicaron {count} campo(s) en {name} ({size})",
+    "! Could not inspect {name}: {error}":
+        "! No se pudo inspeccionar {name}: {error}",
+    # run summary
+    "Summary": "Resumen",
+    "  QSOs in log          : {n}": "  QSO en el log         : {n}",
+    "  Cards generated      : {n}": "  Tarjetas generadas    : {n}",
+    "  Ready to e-mail      : {n}": "  Listas para enviar    : {n}",
+    "  Missing an address   : {n}": "  Sin dirección         : {n}",
+    "  No name logged       : {n}": "  Sin nombre en el log  : {n}",
+    "  Errors               : {n}": "  Errores               : {n}",
+    "  New QRZ lookups      : {n}": "  Consultas nuevas QRZ  : {n}",
+    "  Output               : {path}": "  Salida                : {path}",
+    # delivery plan
+    "Delivery plan": "Plan de envío",
+    "  Login as    : {value}": "  Sesión como : {value}",
+    "  From        : {value}": "  Desde       : {value}",
+    "  Cards from  : {value}": "  Tarjetas de : {value}",
+    "  Messages    : {n}": "  Mensajes    : {n}",
+    "  Pause       : {n}s between messages":
+        "  Pausa       : {n}s entre mensajes",
+    "  REDIRECTED  : every message goes to {address}":
+        "  REDIRIGIDO  : todos los mensajes van a {address}",
+    "                (real recipients are NOT contacted, nothing is":
+        "                (NO se contacta a los destinatarios reales, no se",
+    "                 written to the sent log)":
+        "                 escribe nada en el registro de enviados)",
+    "  Skipping    : {value}": "  Se saltea   : {value}",
+    "{n} already sent": "{n} ya enviadas",
+    "{n} without an address": "{n} sin dirección",
+    "{n} with no card file": "{n} sin archivo de tarjeta",
+    "Queue": "Cola",
+    "First message (preview)": "Primer mensaje (vista previa)",
+    "  From    : {value}": "  Desde   : {value}",
+    "  To      : {value}": "  Para    : {value}",
+    "  Subject : {value}": "  Asunto  : {value}",
+    "  Attached: {value}": "  Adjunto : {value}",
+    # warnings raised while generating
+    "{name} is {actual}, but the saved field boxes were measured on {saved}. "
+    "Automatic detection found {found} box(es) instead of {expected}, so the "
+    "saved boxes were scaled to fit — check one card before sending.":
+        "{name} es {actual}, pero los campos guardados se midieron sobre "
+        "{saved}. La detección automática encontró {found} caja(s) en lugar de "
+        "{expected}, así que se escalaron las guardadas — revisá una tarjeta "
+        "antes de enviar.",
+    "QRZ disabled for this run: {error}":
+        "QRZ desactivado en esta corrida: {error}",
+    "{count} QRZ lookup(s) returned no data: {calls}":
+        "{count} consulta(s) a QRZ no devolvieron datos: {calls}",
+    "No e-mail address for: {calls}": "Sin dirección de correo para: {calls}",
+    # errors when preparing a send
+    "No cards have been made yet ({path} is missing). Make the cards first, "
+    "review them, then send.":
+        "Todavía no se crearon las tarjetas (falta {path}). Creá las tarjetas "
+        "primero, revisalas, y después enviá.",
+    "There are no cards to send. Make the cards first.":
+        "No hay tarjetas para enviar. Creá las tarjetas primero.",
+    "Could not read {path}: {error}": "No se pudo leer {path}: {error}",
     # credentials check before sending
     "E-mail settings": "Configuración de correo",
     "your own e-mail address": "tu propia dirección de correo",
@@ -176,8 +237,6 @@ _ES: dict[str, str] = {
         "La pausa tiene que ser un número de segundos.",
     "The new language will be used next time you open the window.":
         "El nuevo idioma se va a usar la próxima vez que abras la ventana.",
-    "No settings file was found, so there is nothing to edit.":
-        "No se encontró un archivo de configuración, así que no hay nada para editar.",
     "Saved {count} setting(s).": "Se guardaron {count} opción(es).",
     # parameterised messages ({} placeholders are preserved)
     "Looking at {name} …": "Mirando {name} …",
@@ -201,11 +260,10 @@ _ES: dict[str, str] = {
         "{cards} tarjetas creadas · {ready} listas para enviar · "
         "{missing} sin dirección",
     "Something went wrong: {error}": "Algo salió mal: {error}",
-    "Send the e-mails\n\nThis will e-mail {count} operator(s) — for real.\n\n"
+    "This will e-mail {count} operator(s) — for real.\n\n"
     "Anyone who already received their card will be skipped.\n\nSend now?":
-        "Enviar los correos\n\nEsto le va a enviar un correo a {count} "
-        "operador(es) — de verdad.\n\nSe va a saltear a quien ya recibió su "
-        "tarjeta.\n\n¿Enviar ahora?",
+        "Esto le va a enviar un correo a {count} operador(es) — de verdad.\n\n"
+        "Se va a saltear a quien ya recibió su tarjeta.\n\n¿Enviar ahora?",
     "This build of Python has no tkinter, so the window cannot open.\n"
     "On Windows, install Python from python.org (tkinter is included).":
         "Esta instalación de Python no tiene tkinter, así que no se puede abrir "

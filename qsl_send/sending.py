@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from qsl_send.config import Config
+from qsl_send.i18n import t
 from qsl_send.mailer import Outgoing, SentLog
 
 
@@ -30,14 +31,14 @@ class Queue:
 def load_manifest(output_dir: Path) -> dict:
     path = output_dir / "manifest.json"
     if not path.is_file():
-        raise SendError(
-            f"No manifest at {path}. Run 'qsl-send generate' first, review the "
-            "cards, then send."
-        )
+        raise SendError(t(
+            "No cards have been made yet ({path} is missing). Make the cards "
+            "first, review them, then send.", path=path))
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        raise SendError(f"Could not read {path}: {exc}") from exc
+        raise SendError(
+            t("Could not read {path}: {error}", path=path, error=exc)) from exc
 
 
 def build_queue(
@@ -59,7 +60,7 @@ def build_queue(
     manifest = load_manifest(output_dir)
     cards = manifest.get("cards") or []
     if not cards:
-        raise SendError("The manifest lists no cards. Run 'qsl-send generate' first.")
+        raise SendError(t("There are no cards to send. Make the cards first."))
 
     queue = Queue(items=[], redirected_to=to_override)
     wanted = {c.upper() for c in only_calls} if only_calls else None
@@ -113,31 +114,35 @@ def format_preview(cfg: Config, queue: Queue, output_dir: Path) -> str:
     """Human-readable plan of what a send would do."""
     s = cfg.smtp
     lines = [
-        "Delivery plan",
+        t("Delivery plan"),
         "-------------",
-        f"  SMTP        : {s.host}:{s.port} ({'STARTTLS' if s.use_tls and s.port != 465 else 'SSL' if s.port == 465 else 'plaintext'})",
-        f"  Login as    : {s.username or '(anonymous)'}",
-        f"  From        : {s.from_name + ' <' + s.from_address + '>' if s.from_name else s.from_address}",
-        f"  Cards from  : {output_dir}",
-        f"  Messages    : {len(queue.items)}",
-        f"  Pause       : {s.delay:g}s between messages",
+        t("  SMTP        : {value}",
+          value=f"{s.host}:{s.port} ("
+                f"{'STARTTLS' if s.use_tls and s.port != 465 else 'SSL' if s.port == 465 else 'plaintext'})"),
+        t("  Login as    : {value}", value=s.username or "(anonymous)"),
+        t("  From        : {value}",
+          value=f"{s.from_name} <{s.from_address}>" if s.from_name else s.from_address),
+        t("  Cards from  : {value}", value=output_dir),
+        t("  Messages    : {n}", n=len(queue.items)),
+        t("  Pause       : {n}s between messages", n=f"{s.delay:g}"),
     ]
     if queue.is_test:
-        lines.append(f"  REDIRECTED  : every message goes to {queue.redirected_to}")
-        lines.append("                (real recipients are NOT contacted, nothing is")
-        lines.append("                 written to the sent log)")
+        lines.append(t("  REDIRECTED  : every message goes to {address}",
+                       address=queue.redirected_to))
+        lines.append(t("                (real recipients are NOT contacted, nothing is"))
+        lines.append(t("                 written to the sent log)"))
     skips = []
     if queue.skipped_already_sent:
-        skips.append(f"{queue.skipped_already_sent} already sent")
+        skips.append(t("{n} already sent", n=queue.skipped_already_sent))
     if queue.skipped_no_email:
-        skips.append(f"{queue.skipped_no_email} without an address")
+        skips.append(t("{n} without an address", n=queue.skipped_no_email))
     if queue.skipped_missing_card:
-        skips.append(f"{queue.skipped_missing_card} with no card file")
+        skips.append(t("{n} with no card file", n=queue.skipped_missing_card))
     if skips:
-        lines.append(f"  Skipping    : {', '.join(skips)}")
+        lines.append(t("  Skipping    : {value}", value=", ".join(skips)))
 
     lines.append("")
-    lines.append("Queue")
+    lines.append(t("Queue"))
     lines.append("-----")
     for item in queue.items:
         original = item.values.get("email", "")
@@ -160,17 +165,18 @@ def format_sample(cfg: Config, queue: Queue) -> str:
     )
     lines = [
         "",
-        "First message (preview)",
+        t("First message (preview)"),
         "-----------------------",
-        f"  From    : {msg['From']}",
-        f"  To      : {msg['To']}",
-        f"  Subject : {msg['Subject']}",
+        t("  From    : {value}", value=msg["From"]),
+        t("  To      : {value}", value=msg["To"]),
+        t("  Subject : {value}", value=msg["Subject"]),
     ]
     if attachment is not None:
         size = len(attachment.get_payload(decode=True) or b"")
         lines.append(
-            f"  Attached: {attachment.get_filename()} ({size / 1024:.0f} KB, "
-            f"{attachment.get_content_type()})"
+            t("  Attached: {value}",
+              value=f"{attachment.get_filename()} ({size / 1024:.0f} KB, "
+                    f"{attachment.get_content_type()})")
         )
     lines.append("")
     body = msg.get_body(preferencelist=("plain",))

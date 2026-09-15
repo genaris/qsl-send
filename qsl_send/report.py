@@ -8,6 +8,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from qsl_send.i18n import t
 from qsl_send.pipeline import RunSummary
 
 CSV_COLUMNS = [
@@ -61,20 +62,20 @@ def write_manifest(summary: RunSummary, output_dir: Path, *, stem: str = "manife
 def format_summary(summary: RunSummary, output_dir: Path) -> str:
     lines = [
         "",
-        "Summary",
+        t("Summary"),
         "-------",
-        f"  QSOs in log          : {summary.qsos_read}",
-        f"  Cards generated      : {summary.cards_written}",
-        f"  Ready to e-mail      : {summary.with_email}",
-        f"  Missing an address   : {summary.without_email}",
+        t("  QSOs in log          : {n}", n=summary.qsos_read),
+        t("  Cards generated      : {n}", n=summary.cards_written),
+        t("  Ready to e-mail      : {n}", n=summary.with_email),
+        t("  Missing an address   : {n}", n=summary.without_email),
     ]
     if summary.without_name:
-        lines.append(f"  No name logged       : {summary.without_name}")
+        lines.append(t("  No name logged       : {n}", n=summary.without_name))
     if summary.errors:
-        lines.append(f"  Errors               : {summary.errors}")
+        lines.append(t("  Errors               : {n}", n=summary.errors))
     if summary.qrz_queried:
-        lines.append(f"  New QRZ lookups      : {summary.qrz_queried}")
-    lines.append(f"  Output               : {output_dir}")
+        lines.append(t("  New QRZ lookups      : {n}", n=summary.qrz_queried))
+    lines.append(t("  Output               : {path}", path=output_dir))
     if summary.warnings:
         lines.append("")
         lines.append("Warnings")
@@ -84,5 +85,5 @@ def format_summary(summary: RunSummary, output_dir: Path) -> str:
     if missing:
         lines.append("")
         shown = ", ".join(missing[:15]) + ("…" if len(missing) > 15 else "")
-        lines.append(f"No e-mail address for: {shown}")
+        lines.append(t("No e-mail address for: {calls}", calls=shown))
     return "\n".join(lines)
