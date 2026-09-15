@@ -560,6 +560,46 @@ Adding another language means adding one dictionary to `qsl_send/i18n.py`;
 the keys are the English strings, so anything not yet translated simply appears
 in English rather than breaking.
 
+### Making a release
+
+Releases are automated with
+[Release Please](https://github.com/googleapis/release-please). You never edit
+a version number by hand.
+
+As commits land on `main`, a pull request titled `chore(main): release x.y.z`
+is kept up to date. It contains the changelog and the new version written into
+all three places that carry it:
+
+```
+pyproject.toml          version = "0.2.0"
+qsl_send/__init__.py    __version__ = "0.2.0"
+packaging/installer.iss #define AppVersion "0.2.0"
+```
+
+Merging that pull request tags the release, publishes it, and triggers the
+Windows build, which attaches `QSL-Sender-Setup-0.2.0.exe` to it. Colleagues
+get a download link.
+
+The version comes from the commit messages
+([Conventional Commits](https://www.conventionalcommits.org)):
+
+| Commit prefix | Effect |
+| --- | --- |
+| `fix:` | patch — 0.1.0 → 0.1.1 |
+| `feat:` | minor — 0.1.0 → 0.2.0 |
+| `feat!:` or a `BREAKING CHANGE:` footer | major, **once past 1.0.0** |
+| `docs:`, `refactor:`, `perf:` | appear in the changelog, no version bump |
+| `chore:`, `test:` | hidden from the changelog |
+
+While the version is below `1.0.0`, a `feat:` bumps the minor and nothing
+counts as breaking — which suits a tool still changing shape. To declare the
+application stable, merge a release PR containing a `feat!:` commit, or set the
+version to `1.0.0` in `.release-please-manifest.json`.
+
+Each of the three files carries an `x-release-please-version` marker on the
+line holding the number; without it Release Please leaves the file alone and
+the installer would ship a version that disagrees with the application.
+
 ### Building it
 
 Two supported routes; both produce the same thing.

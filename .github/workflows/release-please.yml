@@ -1,0 +1,32 @@
+name: Release
+
+# Keeps a "chore(main): release x.y.z" pull request up to date as commits land
+# on main. Merging that PR tags the release and publishes it; publishing then
+# triggers build-windows.yml, which attaches the installer.
+#
+# Commit messages drive the version, following Conventional Commits:
+#   feat:  -> minor   fix:   -> patch   feat!: -> major (or breaking footer)
+# While the version is below 1.0.0 a feat: bumps the minor and nothing counts
+# as a breaking change.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+    outputs:
+      released: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
