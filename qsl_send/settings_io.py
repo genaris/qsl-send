@@ -238,6 +238,29 @@ def _find_line(lines: list[str], dotted: str) -> int | None:
     return None
 
 
+def _comment_hint(lines: list[str], dotted: str) -> int:
+    """Where to insert a new top-level key.
+
+    Right after a commented-out example of it when one exists, so the value
+    lands beside the comment explaining it. Otherwise before the first nested
+    block, which keeps top-level keys together.
+    """
+    commented = re.compile(rf"^\s*#\s*{re.escape(dotted)}\s*:")
+    for i, line in enumerate(lines):
+        if commented.match(line):
+            # Replace the commented example rather than sitting beside it:
+            # two lines for one key reads as a mistake.
+            lines.pop(i)
+            return i
+    for i, line in enumerate(lines):
+        m = _KEY_LINE.match(line)
+        if m and len(m.group("indent")) == 0:
+            rest, _ = _split_comment(m.group("rest"))
+            if not rest.strip():          # a block header such as `smtp:`
+                return i
+    return len(lines)
+
+
 def update_settings(
     path: str | Path,
     changes: dict[str, Any],
@@ -268,7 +291,17 @@ def update_settings(
     for dotted, value in changes.items():
         idx = _find_line(lines, dotted)
         if idx is None:
-            continue  # absent keys are left alone rather than invented
+            # The key is absent, or present only as a comment (an example file
+            # ships `# language: es`). Silently dropping the write is worse
+            # than adding the key: the settings window appeared to save and
+            # then forgot the choice. Only top-level keys are added, since
+            # inventing a nested block would be guesswork.
+            if "." in dotted:
+                continue
+            insert_at = _comment_hint(lines, dotted)
+            lines.insert(insert_at, f"{dotted}: {_format(value)}")
+            written.append(dotted)
+            continue
         m = _KEY_LINE.match(lines[idx])
         if not m:
             continue
@@ -308,6 +341,82 @@ def update_settings(
         tmp.unlink(missing_ok=True)
         raise SettingsWriteError(f"Could not save {p}: {exc}") from exc
     return written
+
+
+def update_render_fields(
+    path: str | Path,
+    template_size: tuple[int, int],
+    fields: list[tuple[str, list[int], str]],
+) -> None:
+    """Rewrite render.template_size and render.fields together.
+
+    These two belong to one another: the boxes are measured in pixels of a
+    particular image, so saving them against a stale size leaves every box
+    scaled and the text landing off the card. They are written in one pass so
+    they cannot drift apart.
+
+    Only this region is touched; comments elsewhere in the file survive.
+    """
+    p = Path(path)
+    original = p.read_text(encoding="utf-8")
+    newline = "\r\n" if "\r\n" in original else "\n"
+    lines = original.splitlines()
+
+    start = None
+    for i, line in enumerate(lines):
+        if line.strip().startswith("template_size:"):
+            start = i
+            break
+    if start is None:
+        raise SettingsWriteError(
+            f"{p} has no render.template_size to update. Run "
+            "'qsl-send detect-fields --write' once, or add the key by hand."
+        )
+
+    indent = " " * (len(lines[start]) - len(lines[start].lstrip()))
+
+    # The region runs to the end of the fields list that follows.
+    end = start + 1
+    seen_fields = False
+    while end < len(lines):
+        stripped = lines[end].strip()
+        if not stripped or stripped.startswith("#"):
+            end += 1
+            continue
+        current_indent = len(lines[end]) - len(lines[end].lstrip())
+        if stripped.startswith("fields:") and current_indent == len(indent):
+            seen_fields = True
+            end += 1
+            continue
+        if seen_fields and current_indent > len(indent):
+            end += 1
+            continue
+        if seen_fields:
+            break
+        if current_indent <= len(indent):
+            break
+        end += 1
+
+    block = [f"{indent}template_size: [{template_size[0]}, {template_size[1]}]",
+             f"{indent}fields:"]
+    for name, box, value in fields:
+        block.append(f"{indent}  - name: {name}")
+        block.append(f"{indent}    box: [{', '.join(str(v) for v in box)}]")
+        if value:
+            block.append(f'{indent}    value: "{value}"')
+
+    updated = lines[:start] + block + lines[end:]
+    text = newline.join(updated)
+    if original.endswith(("\n", "\r\n")):
+        text += newline
+
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(p)
+    except OSError as exc:
+        tmp.unlink(missing_ok=True)
+        raise SettingsWriteError(f"Could not save {p}: {exc}") from exc
 
 
 def update_env_file(path: str | Path, changes: dict[str, str]) -> list[str]:

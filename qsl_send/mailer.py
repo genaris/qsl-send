@@ -155,10 +155,24 @@ class Mailer:
                     smtp.ehlo()
             if cfg.username:
                 if not cfg.password:
+                    # Caught here rather than letting the server answer
+                    # "530 Authentication Required", which tells the user
+                    # nothing about what to fix.
                     raise MailError(
-                        "smtp.password is empty. For Gmail this must be a 16-character "
-                        "App Password (https://myaccount.google.com/apppasswords), not "
-                        "your Google account password."
+                        "No password is set for "
+                        f"{cfg.username}, so the mail server rejected the "
+                        "sign-in.\n\n"
+                        "For Gmail this must be a 16-character App Password "
+                        "from https://myaccount.google.com/apppasswords — not "
+                        "your normal Google password, and 2-Step Verification "
+                        "must be on.\n\n"
+                        "Enter it in Settings under Password."
+                    )
+                if cfg.username.startswith(("myemail@", "your", "user@")):
+                    raise MailError(
+                        f"The sign-in address is still the example value "
+                        f"'{cfg.username}'. Put your own address in Settings "
+                        "under 'Sign in as'."
                     )
                 password = cfg.password
                 if "gmail.com" in cfg.host.lower():

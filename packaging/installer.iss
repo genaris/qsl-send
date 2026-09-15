@@ -16,7 +16,9 @@ DefaultGroupName={#AppName}
 ; Per-user install needs no administrator rights, which matters when
 ; colleagues cannot install software on a work machine.
 PrivilegesRequired=lowest
-OutputDir=..\dist
+; Separate from dist/, which holds PyInstaller's compiled folder. Keeping
+; them apart is what lets the workflow publish just the installer.
+OutputDir=..\installer
 OutputBaseFilename=QSL-Sender-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
@@ -29,6 +31,10 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Files]
 Source: "..\dist\QSL Sender\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+; Beside the executable as well as inside _internal, so the application can
+; find it to seed a new user's settings on first run.
+Source: "..\qsl-send.example.yaml"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\template.jpg"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"

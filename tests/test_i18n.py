@@ -164,3 +164,58 @@ def test_the_author_credit_translates():
     assert t("by {callsign}", callsign="LU2AOG") == "by LU2AOG"
     set_language("es")
     assert t("by {callsign}", callsign="LU2AOG") == "por LU2AOG"
+
+
+# Strings that legitimately have no Spanish entry.
+_UNTRANSLATED_ON_PURPOSE = {
+    "QSL Sender",                          # the application's name
+    "  SMTP        : {value}",             # an acronym, identical in Spanish
+    # Raised before the catalogue can be used, when tkinter is absent.
+    "This build of Python has no tkinter, so the window cannot open.\n"
+    "On Windows, install Python from python.org (tkinter is included).",
+}
+
+
+def _strings_passed_to_t() -> set[str]:
+    """Every literal the code actually asks the catalogue to translate."""
+    import ast
+
+    package = Path(__file__).resolve().parents[1] / "qsl_send"
+    found: set[str] = set()
+    for source in package.glob("*.py"):
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "t"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                found.add(node.args[0].value)
+    return found
+
+
+def test_no_string_shown_to_the_user_lacks_a_translation():
+    """Catches text that reaches the window but was never translated."""
+    missing = sorted(
+        s for s in _strings_passed_to_t()
+        if s not in i18n._CATALOGUES["es"] and s not in _UNTRANSLATED_ON_PURPOSE
+    )
+    assert missing == [], f"no Spanish for: {missing}"
+
+
+def test_no_translation_sits_unused_in_the_catalogue():
+    """Catches the opposite failure, which is easy to miss.
+
+    A translation can exist while the code builds the same sentence with an
+    f-string, bypassing the catalogue entirely — so the Spanish is written,
+    correct, and never shown. That happened to the send confirmation.
+    """
+    used = _strings_passed_to_t()
+    orphaned = sorted(
+        s for s in i18n._CATALOGUES["es"]
+        if s not in used and s not in _UNTRANSLATED_ON_PURPOSE
+    )
+    assert orphaned == [], f"translated but never shown: {orphaned}"

@@ -307,3 +307,210 @@ def test_env_writer_appends_a_missing_key_and_creates_the_file(tmp_path):
     env = tmp_path / ".env"
     assert update_env_file(env, {"SMTP_PASSWORD": "abcd"}) == ["SMTP_PASSWORD"]
     assert "SMTP_PASSWORD=abcd" in env.read_text(encoding="utf-8")
+
+
+def test_a_commented_out_key_is_written_not_silently_dropped(tmp_path):
+    """The bug this fixes: the settings window appeared to save, then forgot.
+
+    Example configs ship keys commented out (`# language: es`). _find_line
+    cannot see those, so the write was discarded with no error at all.
+    """
+    import yaml
+
+    p = tmp_path / "qsl-send.yaml"
+    p.write_text(
+        "# Window language.\n# language: es\nmy_callsign: AA1AA\n", encoding="utf-8")
+
+    assert update_settings(p, {"language": "en"}) == ["language"]
+    data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    assert data["language"] == "en"
+    # The commented example is replaced, not left beside the real key.
+    assert "# language: es" not in p.read_text(encoding="utf-8")
+
+
+def test_a_key_absent_entirely_is_added(tmp_path):
+    import yaml
+
+    p = tmp_path / "qsl-send.yaml"
+    p.write_text("my_callsign: AA1AA\nsmtp:\n  host: x\n", encoding="utf-8")
+
+    assert update_settings(p, {"language": "es"}) == ["language"]
+    data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    assert data["language"] == "es"
+    assert data["smtp"]["host"] == "x"      # the nested block survives
+
+
+def test_an_added_key_lands_above_the_nested_blocks(tmp_path):
+    p = tmp_path / "qsl-send.yaml"
+    p.write_text("my_callsign: AA1AA\nsmtp:\n  host: x\n", encoding="utf-8")
+    update_settings(p, {"language": "es"})
+
+    lines = p.read_text(encoding="utf-8").splitlines()
+    assert lines.index("language: es") < lines.index("smtp:")
+
+
+def test_a_missing_nested_key_is_still_not_invented(tmp_path):
+    """Adding a top-level key is safe; guessing a nested block is not."""
+    p = tmp_path / "qsl-send.yaml"
+    p.write_text("my_callsign: AA1AA\n", encoding="utf-8")
+    assert update_settings(p, {"smtp.host": "smtp.example.com"}) == []
+    assert "smtp" not in p.read_text(encoding="utf-8")
+
+
+def test_a_field_the_window_edits_replaces_its_placeholder(tmp_path):
+    """The bug: 'Sign in as' appeared to save, then forgot.
+
+    smtp.username ships as ${SMTP_USERNAME}, and the guard protecting
+    placeholders discarded the write. Only smtp.password had permission to
+    replace one, so every other editable field failed the same way.
+    """
+    import yaml
+
+    p = tmp_path / "qsl-send.yaml"
+    p.write_text(
+        "smtp:\n"
+        "  username: ${SMTP_USERNAME}\n"
+        "  password: ${SMTP_PASSWORD}\n"
+        "  from_name: ${SOMETHING_ELSE}\n",
+        encoding="utf-8",
+    )
+    written = update_settings(
+        p, {"smtp.username": "me@example.com"},
+        allow_replacing_placeholders={"smtp.username"})
+
+    assert written == ["smtp.username"]
+    data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    assert data["smtp"]["username"] == "me@example.com"
+    # Permission is per key: everything else keeps its placeholder.
+    assert data["smtp"]["password"] == "${SMTP_PASSWORD}"
+    assert data["smtp"]["from_name"] == "${SOMETHING_ELSE}"
+
+
+def test_placeholders_outside_the_window_are_never_touched(tmp_path):
+    """QRZ credentials are not editable in the window, so they stay as written."""
+    import yaml
+
+    p = tmp_path / "qsl-send.yaml"
+    p.write_text(
+        "qrz:\n  username: ${QRZ_USERNAME}\n"
+        "smtp:\n  username: ${SMTP_USERNAME}\n",
+        encoding="utf-8",
+    )
+    update_settings(
+        p, {"smtp.username": "me@example.com", "qrz.username": "sneaky"},
+        allow_replacing_placeholders={"smtp.username"})
+
+    data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    assert data["smtp"]["username"] == "me@example.com"
+    assert data["qrz"]["username"] == "${QRZ_USERNAME}"
+
+
+def test_the_files_section_keys_are_ordinary_writable_keys(tmp_path):
+    """template/adif/output_dir are edited on the main window, not the dialog.
+
+    They must still save with everything else: before this they were never
+    written at all, so a chosen file was lost when the application closed.
+    """
+    import yaml
+
+    p = tmp_path / "qsl-send.yaml"
+    p.write_text(
+        "template: template.jpg\nadif: mylog.adi\noutput_dir: output\n"
+        "my_callsign: AA1AA\n",
+        encoding="utf-8",
+    )
+    written = update_settings(p, {
+        "template": "/cards/my-card.jpg",
+        "adif": "/logs/today.adi",
+        "output_dir": "/cards/out",
+    })
+    assert sorted(written) == ["adif", "output_dir", "template"]
+
+    data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    assert data["template"] == "/cards/my-card.jpg"
+    assert data["adif"] == "/logs/today.adi"
+    assert data["output_dir"] == "/cards/out"
+    assert data["my_callsign"] == "AA1AA"      # untouched
+
+
+def test_a_windows_path_survives_being_written(tmp_path):
+    """Backslashes and a drive letter must not be mangled or mis-quoted."""
+    import yaml
+
+    p = tmp_path / "qsl-send.yaml"
+    p.write_text("template: template.jpg\n", encoding="utf-8")
+    win = r"C:\Users\Someone\Documents\card.jpg"
+    update_settings(p, {"template": win})
+    assert yaml.safe_load(p.read_text(encoding="utf-8"))["template"] == win
+
+
+def test_render_fields_and_template_size_are_written_together(tmp_path):
+    """They belong to one another: boxes are pixels of one particular image.
+
+    Saving boxes against a stale template_size leaves every box scaled, which
+    is what put the text off the card after choosing a different design.
+    """
+    import yaml
+
+    from qsl_send.settings_io import update_render_fields
+
+    p = tmp_path / "qsl-send.yaml"
+    p.write_text(
+        "my_callsign: AA1AA\n"
+        "render:\n"
+        "  color: \"#0b2d5c\"\n"
+        "  template_size: [1583, 1061]\n"
+        "  fields:\n"
+        "    - name: fecha\n"
+        "      box: [101, 950, 166, 42]\n"
+        "      value: \"{date}\"\n"
+        "qrz:\n"
+        "  enabled: false\n",
+        encoding="utf-8",
+    )
+    update_render_fields(
+        p, (1607, 1061),
+        [("date", [402, 920, 174, 41], "{date}"),
+         ("qso_with", [586, 921, 173, 41], "{callsign}")],
+    )
+
+    data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    assert data["render"]["template_size"] == [1607, 1061]
+    assert len(data["render"]["fields"]) == 2
+    assert data["render"]["fields"][0]["box"] == [402, 920, 174, 41]
+    # Neighbouring keys and blocks survive.
+    assert data["render"]["color"] == "#0b2d5c"
+    assert data["my_callsign"] == "AA1AA"
+    assert data["qrz"]["enabled"] is False
+
+
+def test_rewriting_render_fields_replaces_the_old_boxes(tmp_path):
+    import yaml
+
+    from qsl_send.settings_io import update_render_fields
+
+    p = tmp_path / "qsl-send.yaml"
+    p.write_text(
+        "render:\n"
+        "  template_size: [1583, 1061]\n"
+        "  fields:\n"
+        "    - name: a\n      box: [1, 2, 3, 4]\n"
+        "    - name: b\n      box: [5, 6, 7, 8]\n"
+        "    - name: c\n      box: [9, 10, 11, 12]\n",
+        encoding="utf-8",
+    )
+    update_render_fields(p, (1607, 1061), [("only", [1, 1, 1, 1], "{date}")])
+
+    data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    assert [f["name"] for f in data["render"]["fields"]] == ["only"]
+    assert "box: [5, 6, 7, 8]" not in p.read_text(encoding="utf-8")
+
+
+def test_a_config_without_template_size_reports_clearly(tmp_path):
+    from qsl_send.settings_io import update_render_fields
+
+    p = tmp_path / "qsl-send.yaml"
+    p.write_text("my_callsign: AA1AA\n", encoding="utf-8")
+    with pytest.raises(SettingsWriteError) as exc:
+        update_render_fields(p, (1607, 1061), [("date", [1, 2, 3, 4], "{date}")])
+    assert "detect-fields" in str(exc.value)
